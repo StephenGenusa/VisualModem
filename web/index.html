@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Visual Modem</title>
+  <script>
+    (function () {
+      try {
+        var v = localStorage.getItem('vm-theme');
+        if (/^(sage|parchment|linen)(-dark)?$/.test(v)) document.documentElement.dataset.theme = v;
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="sender.js"></script>
+  <script type="module" src="receiver.js"></script>
+</head>
+<body>
+  <nav class="tabs">
+    <a href="#send" data-tab="send">Send</a>
+    <a href="#receive" data-tab="receive">Receive</a>
+    <div class="theme-chips" id="theme-chips" role="group" aria-label="Color theme"></div>
+  </nav>
+
+  <main>
+    <section id="send" class="tab">
+      <h1>Send</h1>
+
+      <label for="message">Message</label>
+      <textarea id="message" rows="4" placeholder="Type a message. It is sent instead of the file when not empty." aria-describedby="message-help">That's one small step for a photon, one giant leap for bandwidth. Mr. Watson — come here — I want to see you. Can you hear me now? Houston, we have a problem. LO. just setting up my twttr.</textarea>
+      <p class="help" id="message-help">The box's text is sent. Choosing a file clears it so the file is sent; clear the box yourself to send the file again.</p>
+
+      <label for="file">Or a file</label>
+      <input id="file" type="file" aria-describedby="file-help">
+      <p class="help" id="file-help">Any file. It is compressed before it is sent, with its name and type.</p>
+
+      <label for="password">Password (optional)</label>
+      <input id="password" type="password" autocomplete="new-password" aria-describedby="password-help">
+      <p class="help" id="password-help">Encrypts what you send. The phone asks for this password before it shows the message or file.</p>
+      <details class="more"><summary>More</summary>
+        <div class="more-body">
+          <p><b>What it protects:</b> the message or file, with its name and type. They are encrypted on this computer with AES-GCM, using a 256 bit key made from the password (PBKDF2 with SHA-256, 200,000 rounds). Nothing goes over the network.</p>
+          <p><b>What it does not hide:</b> anyone who films the screen can still see that something is being sent and roughly how large it is.</p>
+          <p><b>On the phone:</b> when the transfer completes, the Receive page asks for the password. Enter the same one; a wrong one gives "Wrong password, try again". A lost password cannot be recovered.</p>
+        </div>
+      </details>
+
+      <fieldset>
+        <legend>Screen settings</legend>
+        <label for="block-size">Block size <output id="block-size-value"></output> px, cap <output id="block-size-cap"></output></label>
+        <input id="block-size" type="range" min="4" step="1" aria-describedby="block-size-help">
+        <p class="help" id="block-size-help">Larger blocks read from farther away but carry less per frame.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p><b>Pros of larger:</b> the phone reads from farther away. <b>Cons:</b> fewer blocks fit on the screen, so each frame carries less.</p>
+            <p>The cap is the largest block that still fits a grid of 33 by 20 blocks on this screen.</p>
+            <ul>
+              <li>Best measured on the test setup (a 4K TV and a phone camera at 1080p): block 28 with the color cube at 2 levels and 10 frames a second, about 26 KB/s.</li>
+              <li>Block 19 failed even on a still frame. At block 16 and below, reads are slow.</li>
+              <li>Aim matters as much as size: center the TV in the camera view and fill about 85 to 90% of its width. Off-center or small aims failed below block 35.</li>
+              <li>Not sure? Run Probe and use the block size the phone recommends.</li>
+            </ul>
+          </div>
+        </details>
+
+        <label for="scheme">Color scheme</label>
+        <select id="scheme" aria-describedby="scheme-help"></select>
+        <p class="help" id="scheme-help">How a block's color carries bits. More colors carry more but need a clearer view.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>Bits per block: black and white 1, 4 shades of gray 2, green 4 with red and blue 2 gives 4, and the color cube 3 at 2 levels, 6 at 4 levels.</p>
+            <ul>
+              <li><b>Black and white</b> is the safest at small blocks.</li>
+              <li><b>Color cube</b> at 2 levels carries more but needs a good aim. It gave the best measured rate, at block 28.</li>
+              <li><b>Green 4, red and blue 2</b> failed at every block size.</li>
+              <li><b>4 shades of gray</b> failed from block 23 down.</li>
+            </ul>
+            <p>All measured on the test setup (a 4K TV and a phone camera at 1080p).</p>
+          </div>
+        </details>
+
+        <label for="levels">Levels per channel</label>
+        <select id="levels" aria-describedby="levels-help">
+          <option value="2">2</option>
+          <option value="4">4</option>
+          <option value="8">8</option>
+          <option value="16">16</option>
+          <option value="256">256</option>
+        </select>
+        <p class="help" id="levels-help">For the color cube only: 2 levels gives 8 colors, 4 gives 64.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p><b>Pros of more levels:</b> each doubling adds 3 bits per block. <b>Cons:</b> the colors sit closer together, so the camera confuses them sooner.</p>
+            <ul>
+              <li>2 levels with block 28 was the best measured on the test setup (a 4K TV and a phone camera at 1080p).</li>
+              <li>256 levels is for saved PNG files only. A camera cannot read it.</li>
+              <li>The other schemes have fixed colors, so this select is off for them.</li>
+            </ul>
+          </div>
+        </details>
+        <p id="levels-note" class="help" hidden>256 levels is for saved PNG files only. A camera cannot read it.</p>
+
+        <label class="check"><input id="fountain" type="checkbox" aria-describedby="fountain-help"> Fountain coding</label>
+        <p class="help" id="fountain-help">Phones can join at any time and fill gaps from any frames they read.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p><b>Pros:</b> at 10 frames a second it finished a 200 KB file in 8.7 s against 18.0 s without it. <b>Cons:</b> it needs about 8% more frames than version 3 for the same file (69 against 64 for a 200 KB file at block 28, cube 2, parity 32 on a 4K screen; computed, not measured), for the packet headers, CRCs and the header copies. At 7.5 frames a second with a clear view the gain was only about 18%, since without it each missed frame comes round again on the next loop. Measured on the test setup.</p>
+            <ul>
+              <li>Works well with higher frame rates: it is what makes them pay.</li>
+              <li>Files over 1,024 pieces go out without it. A piece is 214 bytes at block 28, cube 2, parity 32 on a 4K screen (about 219 KB), and the readout shows the limit for the current settings.</li>
+            </ul>
+          </div>
+        </details>
+
+        <label for="parity">Parity bytes per codeword <output id="parity-value"></output></label>
+        <input id="parity" type="range" min="0" max="128" step="2" aria-describedby="parity-help">
+        <p class="help" id="parity-help">Repair bytes in each 255 byte codeword. More repairs more damage but leaves less room for data.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>Data goes out in codewords of 255 bytes. With parity p, each codeword spends p bytes on repair and can fix up to p / 2 wrong bytes in it. At 32 it fixes up to 16 bad bytes per codeword and spends 32 of each 255 bytes, about 13% of the space.</p>
+            <ul>
+              <li>0 turns repair off: no wrong data byte can be fixed.</li>
+              <li>Stay with 32, the measured setting, unless there is a reason to change.</li>
+              <li>With fountain coding, the frame's payload is split into equal codewords of at most 255 bytes, and each packet carries its codeword length minus parity minus 7 bytes of data: 214 bytes at block 28, cube 2, parity 32 on a 4K screen.</li>
+            </ul>
+          </div>
+        </details>
+
+        <label for="fps">Frames per second <output id="fps-value"></output></label>
+        <input id="fps" type="range" min="0.5" max="10" step="0.5" aria-describedby="fps-help">
+        <p class="help" id="fps-help">Faster sends more each second but tears more on the phone's rolling shutter.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p><b>Pros of faster:</b> more frames, so more data, each second. <b>Cons:</b> the phone's camera reads the screen line by line, so a frame change mid-read tears the picture and that read can fail.</p>
+            <ul>
+              <li>Fountain coding is what makes the higher rates pay: a torn frame is made up by any later frame instead of waiting a full loop.</li>
+              <li>10 frames a second with block 28 and the color cube at 2 levels was the best measured on the test setup (a 4K TV and a phone camera at 1080p), about 26 KB/s.</li>
+            </ul>
+          </div>
+        </details>
+
+        <label for="white">White level <output id="white-value"></output></label>
+        <input id="white" type="range" min="64" max="255" step="1" aria-describedby="white-help">
+        <p class="help" id="white-help">Lower it if the phone shows markers flickering or many CRC failures on a bright screen.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>The value drawn for full white, from 64 to 255. A lower value dims the whole frame, markers and data alike, so a bright screen does not overexpose the phone's camera. Black stays black.</p>
+            <ul>
+              <li>The phone needs no setting: it reads the level steps from a ramp drawn in each frame.</li>
+              <li><b>Cons:</b> dimming brings the levels closer together. Below 64 they crowd together on a camera.</li>
+            </ul>
+          </div>
+        </details>
+      </fieldset>
+
+      <p id="readout" class="readout" aria-live="polite">Nothing to send</p>
+
+      <div class="preview-box">
+        <canvas id="preview" width="1" height="1" aria-label="Preview of frame 1"></canvas>
+      </div>
+
+      <section class="grp g-send" id="grp-send" aria-labelledby="grp-send-h">
+        <h2 class="grp-h" id="grp-send-h"><span class="num">1</span>Send<span class="tag">No network</span></h2>
+        <p class="grp-desc">Moves your message or file to the phone by light. No network needed.</p>
+        <div class="actions"><button id="start" type="button" class="primary" disabled aria-describedby="start-help">Start</button></div>
+        <p class="help" id="start-help">Shows the file full screen and loops until you press Stop. Phones can join at any time.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>To stop, press Escape, or click or tap the screen. Start does not stop by itself. It sends with the screen settings above, and the readout above says what each frame carries.</p>
+          </div>
+        </details>
+
+        <details class="more png-more"><summary>Save as PNG files instead</summary>
+          <fieldset>
+            <legend>Save frames as PNG files</legend>
+            <div class="row">
+              <label>Width <input id="file-width" type="number" min="33" step="1" aria-describedby="file-width-help"></label>
+              <label>Height <input id="file-height" type="number" min="20" step="1" aria-describedby="file-height-help"></label>
+            </div>
+            <p class="help" id="file-width-help">Width of each saved image in pixels.</p>
+            <p class="help" id="file-height-help">Height of each saved image in pixels.</p>
+
+            <label for="file-block-size">Block size <output id="file-block-size-value"></output> px</label>
+            <input id="file-block-size" type="range" min="1" max="4" step="1" aria-describedby="file-block-size-help">
+            <p class="help" id="file-block-size-help">Pixels per block in the files, 1 to 4: the file reader tries only these.</p>
+
+            <label for="file-levels">Levels per channel</label>
+            <select id="file-levels" aria-describedby="file-levels-help">
+              <option value="2">2</option>
+              <option value="4">4</option>
+              <option value="8">8</option>
+              <option value="16">16</option>
+              <option value="256">256</option>
+            </select>
+            <p class="help" id="file-levels-help">Color cube levels in the files. 256 packs the most and suits files, which no camera has to read.</p>
+
+            <label for="file-parity">Parity bytes per codeword <output id="file-parity-value"></output></label>
+            <input id="file-parity" type="range" min="0" max="128" step="2" aria-describedby="file-parity-help">
+            <p class="help" id="file-parity-help">Repair bytes per 255 byte codeword. The default is 0, since PNG files are lossless.</p>
+
+            <p id="file-readout" class="readout" aria-live="polite">Nothing to send</p>
+            <div class="actions"><button id="save" type="button" class="secondary" disabled aria-describedby="save-help">Save frames</button></div>
+            <p class="help" id="save-help">Writes the frames as PNG files instead of showing them.</p>
+          </fieldset>
+        </details>
+      </section>
+
+      <section class="grp g-probe" id="grp-probe" aria-labelledby="grp-probe-h">
+        <h2 class="grp-h" id="grp-probe-h"><span class="num">2</span>Find the best settings<span class="tag">No network</span></h2>
+        <p class="grp-desc">For a new TV, room or phone. No network needed: the phone measures by light and recommends a block size and colors.</p>
+        <div class="actions">
+          <button id="probe" type="button" class="secondary" aria-describedby="probe-help">Probe</button>
+          <label for="probe-loops" class="inline-label">Loops</label>
+          <select id="probe-loops" aria-describedby="probe-loops-help">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="0">Until Escape</option>
+          </select>
+        </div>
+        <p class="help" id="probe-help">Shows test patterns at each block size, then a frame rate sweep. Bounded by Loops.</p>
+        <p class="help" id="probe-loops-help">How many times Probe runs through every pattern. Until Escape keeps going until you press Escape.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>Open the Receive page on the phone and aim it first. For each block size from 45 down to 9 (as many as fit this screen), Probe shows a frame that measures the camera, then each color scheme. Then it tries the color cube at 2 levels at several frame rates. The patterns are known, so the phone counts errors against them and shows its recommendation at the end. No network needed.</p>
+            <ul>
+              <li>It uses the parity and white level set above.</li>
+              <li>More loops give the phone more reads to judge by, but take longer.</li>
+              <li>Press Escape, or click or tap the screen, to stop early. The phone still recommends from what it saw.</li>
+            </ul>
+          </div>
+        </details>
+        <p id="probe-status" class="probe-status" aria-live="polite"></p>
+      </section>
+
+      <details class="grp g-dev" id="grp-dev" hidden>
+        <summary class="grp-h"><span class="num"><b>3</b></span>Development and testing<span class="tag">Capture server</span></summary>
+        <p class="grp-desc">Measurement runs we do together. The phone reports results to the computer over the network; payload still goes by light.</p>
+        <div class="actions"><button id="tune" type="button" class="dev" hidden aria-describedby="tune-help">Auto tune</button></div>
+        <p class="help" id="tune-help">Tries settings one after another and sets block size and levels to the best.</p>
+        <div class="actions"><button id="run-tests" type="button" class="dev" hidden aria-describedby="run-tests-help">Run tests</button></div>
+        <p class="help" id="run-tests-help">Auto tune at each phone camera size, then times a file at several frame rates. Produces a report.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <p>Both need the project server started with capture on, and the Receive page open on the phone.</p>
+            <ul>
+              <li><b>Auto tune</b> asks the phone for its 1080p camera, then shows color cube trial frames at 2 and 4 levels one after another. The phone reports each trial's results to the server. At the end it sets block size and levels, and the scheme to color cube, from the best result. Stopped early, it changes nothing.</li>
+              <li><b>Run tests</b> does this for the phone's 1080p camera and then its 4K camera: switches the camera, runs Auto tune, then times a file of several frames at a series of frame rates. The report table below lists, per camera, the size it delivered, the time per read, the levels found, the best setting and the bytes per second at each rate. It does not change your settings.</li>
+              <li>If a frame cannot hold the test data, the status says so; choose less parity and try again.</li>
+            </ul>
+          </div>
+        </details>
+        <p id="tune-status" class="readout" aria-live="polite"></p>
+        <div id="test-report" class="test-report"></div>
+      </details>
+
+      <div class="qr">
+        <h2>Open the receiver on your phone</h2>
+        <div id="qr-code"></div>
+        <p id="qr-url" class="url"></p>
+      </div>
+    </section>
+
+    <section id="receive" class="tab" hidden>
+      <div class="rx-run">
+        <div class="camera-box">
+          <video id="rx-video" playsinline muted aria-label="Camera view"></video>
+          <canvas id="rx-overlay" aria-hidden="true"></canvas>
+        </div>
+        <div class="rx-panel" aria-live="polite">
+          <p id="rx-read" class="rx-state st st-warn">Looking for markers</p>
+          <progress id="rx-progress" max="1" value="0"></progress>
+          <p id="rx-progress-text" class="rx-count">0 / 0 frames<span id="rx-time">0:00 elapsed · --:-- left</span></p>
+          <div class="rx-signal"><p id="rx-rate">Reads 0 of last 0</p><p id="rx-reason"></p><p id="rx-hint" class="rx-hint"></p></div>
+          <p class="rx-details"><span id="rx-grid"></span><span id="rx-cam-dims">Camera off</span> · <span id="rx-fps">0 fps read</span> · <span id="rx-counts">CRC pass 0, fail 0</span><span id="rx-margin"></span></p>
+        </div>
+      </div>
+
+      <h1>Receive</h1>
+      <p class="rx-camera-size"><label for="rx-camera-size">Camera</label> <select id="rx-camera-size" aria-describedby="rx-camera-size-help"></select></p>
+      <p class="help" id="rx-camera-size-help">The size the phone asks its camera for. The block sizes in the Send page help were measured with a 1080p camera. Changing it restarts the camera.</p>
+
+      <section id="setup-check" class="setup-check" hidden aria-live="polite">
+        <h2>Setup check</h2>
+        <p id="setup-aim" class="setup-aim"></p>
+        <p id="setup-profile"></p>
+        <p id="setup-progress"></p>
+        <div id="setup-table" class="setup-table"></div>
+        <p id="setup-recommendation" class="setup-recommendation"></p>
+      </section>
+
+      <p id="rx-decode-message" class="readout" aria-live="polite"></p>
+      <form id="rx-password-form" hidden>
+        <label for="rx-password">Password</label>
+        <input id="rx-password" type="password" autocomplete="current-password" aria-describedby="rx-password-help">
+        <p class="help" id="rx-password-help">The password typed on the Send page. A wrong one keeps what was received, so you can try again.</p>
+        <button type="submit" class="primary">Decode</button>
+      </form>
+
+      <div id="rx-result" class="rx-result" aria-live="polite"></div>
+
+      <label for="rx-files">Open files (PNG frames)</label>
+      <input id="rx-files" type="file" accept="image/*" multiple aria-describedby="rx-files-help">
+      <p class="help" id="rx-files-help">Reads PNG frames saved with Save frames on the Send page, without the camera. They add to the same progress. JPEG files usually fail.</p>
+      <ul id="rx-file-log" class="rx-file-log" aria-live="polite"></ul>
+
+      <button id="rx-reset" type="button" aria-describedby="rx-reset-help">Reset</button>
+      <p class="help" id="rx-reset-help">Throws away what has been received so far, the result, the file list and the setup check, and starts the status over.</p>
+
+      <div id="rx-capture-box" hidden>
+        <button id="rx-capture" type="button" aria-describedby="rx-capture-help">Send camera frame to computer</button>
+        <p class="help" id="rx-capture-help">Only with the capture server. Saves the current camera image on the computer as a lossless PNG, for tools/decode-photo.js.</p>
+        <p id="rx-capture-status" aria-live="polite"></p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+certs/
+test/photos/*.jpg
+test/photos/*.png
+test/photos/*.expected
+test/photos/*.jsonl
+scratch/

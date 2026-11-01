@@ -1,0 +1,516 @@
+/* Light themes. Sage (option C) is the default. */
+/* Sage and Indigo, light */
+:root,
+:root[data-theme="sage"] {
+  --bg: #F0F0E6;
+  --surface: #F8F8F0;
+  --surface-2: #E2E3D5;
+  --fg: #23271F;
+  --muted: #53584B;
+  --border: #7F8477;
+  --accent: #4A3E7A;
+  --on-accent: #F8F8F0;
+  --link: #463A75;
+  --focus: #B04A12;
+  --track: #DADBCB;
+  --send-bg: #E6E3F0;
+  --send-edge: #4A3E7A;
+  --send-ink: #372D62;
+  --probe-bg: #E0E9D6;
+  --probe-edge: #4C6838;
+  --probe-ink: #364D27;
+  --dev-bg: #E7E6DF;
+  --dev-edge: #6A6961;
+  --dev-ink: #44433D;
+  --ok: #1C6636;
+  --ok-bg: #DCEDDF;
+  --work: #1D4C86;
+  --work-bg: #DDE6F2;
+  --warn: #7F4C00;
+  --warn-bg: #F6E5C2;
+  --fail: #A0221A;
+  --fail-bg: #F6DCD7;
+  --cam-bg: #000000;
+  color-scheme: light;
+}
+
+/* Parchment and Teal, light */
+:root[data-theme="parchment"] {
+  --bg: #F5F0E6;
+  --surface: #FBF8F1;
+  --surface-2: #ECE5D7;
+  --fg: #29251F;
+  --muted: #5C5447;
+  --border: #857B6D;
+  --accent: #1E5B60;
+  --on-accent: #FBF8F1;
+  --link: #1A5459;
+  --focus: #B04A12;
+  --track: #E2DACA;
+  --send-bg: #E2EDEA;
+  --send-edge: #1E5B60;
+  --send-ink: #143F43;
+  --probe-bg: #F5E7CB;
+  --probe-edge: #8A5A12;
+  --probe-ink: #5E3D0C;
+  --dev-bg: #EBE8E3;
+  --dev-edge: #6B655C;
+  --dev-ink: #45413B;
+  --ok: #1C6636;
+  --ok-bg: #DCEDDF;
+  --work: #1D4C86;
+  --work-bg: #DDE6F2;
+  --warn: #7F4C00;
+  --warn-bg: #F6E5C2;
+  --fail: #A0221A;
+  --fail-bg: #F6DCD7;
+  --cam-bg: #000000;
+  color-scheme: light;
+}
+
+/* Linen and Navy, light */
+:root[data-theme="linen"] {
+  --bg: #F2EFE8;
+  --surface: #F9F7F2;
+  --surface-2: #E6E1D6;
+  --fg: #1F2430;
+  --muted: #535965;
+  --border: #80848F;
+  --accent: #24427A;
+  --on-accent: #F9F7F2;
+  --link: #24427A;
+  --focus: #B5461A;
+  --track: #DEDACF;
+  --send-bg: #E1E7F1;
+  --send-edge: #24427A;
+  --send-ink: #1A315C;
+  --probe-bg: #F4E1D6;
+  --probe-edge: #9A4422;
+  --probe-ink: #73311A;
+  --dev-bg: #E7E7E4;
+  --dev-edge: #686B72;
+  --dev-ink: #42454B;
+  --ok: #1C6636;
+  --ok-bg: #DCEDDF;
+  --work: #24427A;
+  --work-bg: #DFE5F1;
+  --warn: #7F4C00;
+  --warn-bg: #F6E5C2;
+  --fail: #A0221A;
+  --fail-bg: #F6DCD7;
+  --cam-bg: #000000;
+  color-scheme: light;
+}
+
+/* Dark themes, chosen explicitly: a data-theme of NAME-dark applies them whatever the system says. */
+/* Sage and Indigo, dark */
+:root[data-theme="sage-dark"] {
+  --bg: #1A1B17;
+  --surface: #22241F;
+  --surface-2: #2C2E28;
+  --fg: #E9E9DE;
+  --muted: #AFB1A3;
+  --border: #787B6E;
+  --accent: #B4A8EA;
+  --on-accent: #1A1530;
+  --link: #BDB2EE;
+  --focus: #F09A5E;
+  --track: #363830;
+  --send-bg: #221F33;
+  --send-edge: #A497E4;
+  --send-ink: #CBC2F3;
+  --probe-bg: #1E2819;
+  --probe-edge: #93B879;
+  --probe-ink: #BDD7A9;
+  --dev-bg: #252521;
+  --dev-edge: #99988E;
+  --dev-ink: #CCCBC1;
+  --ok: #7FD09A;
+  --ok-bg: #173121;
+  --work: #90B9F0;
+  --work-bg: #172438;
+  --warn: #EFB658;
+  --warn-bg: #33260F;
+  --fail: #F49488;
+  --fail-bg: #3A1A17;
+  --cam-bg: #000000;
+  color-scheme: dark;
+}
+
+/* Parchment and Teal, dark */
+:root[data-theme="parchment-dark"] {
+  --bg: #1B1916;
+  --surface: #24211D;
+  --surface-2: #2F2B26;
+  --fg: #EDE6D8;
+  --muted: #B3A998;
+  --border: #7E7567;
+  --accent: #73C2BF;
+  --on-accent: #0F1F1E;
+  --link: #86CFCC;
+  --focus: #F09A5E;
+  --track: #3A352F;
+  --send-bg: #192A29;
+  --send-edge: #5FB1AE;
+  --send-ink: #A4D8D5;
+  --probe-bg: #2C2313;
+  --probe-edge: #CE9638;
+  --probe-ink: #EBC685;
+  --dev-bg: #252320;
+  --dev-edge: #958C80;
+  --dev-ink: #CEC6B9;
+  --ok: #7FD09A;
+  --ok-bg: #173121;
+  --work: #90B9F0;
+  --work-bg: #172438;
+  --warn: #EFB658;
+  --warn-bg: #33260F;
+  --fail: #F49488;
+  --fail-bg: #3A1A17;
+  --cam-bg: #000000;
+  color-scheme: dark;
+}
+
+/* Linen and Navy, dark */
+:root[data-theme="linen-dark"] {
+  --bg: #171A20;
+  --surface: #1F232B;
+  --surface-2: #2A2F38;
+  --fg: #E8E6E0;
+  --muted: #AEB1B7;
+  --border: #737986;
+  --accent: #93B3EC;
+  --on-accent: #111A2C;
+  --link: #9DBBEF;
+  --focus: #F0A070;
+  --track: #343A45;
+  --send-bg: #1A2337;
+  --send-edge: #7FA2E0;
+  --send-ink: #B7CBF1;
+  --probe-bg: #2E1F19;
+  --probe-edge: #DD8A62;
+  --probe-ink: #F0BA9F;
+  --dev-bg: #23252A;
+  --dev-edge: #959AA3;
+  --dev-ink: #C9CCD2;
+  --ok: #7FD09A;
+  --ok-bg: #173121;
+  --work: #93B3EC;
+  --work-bg: #1A2337;
+  --warn: #EFB658;
+  --warn-bg: #33260F;
+  --fail: #F49488;
+  --fail-bg: #3A1A17;
+  --cam-bg: #000000;
+  color-scheme: dark;
+}
+
+/* Nothing chosen: follow the system. Only an unset data-theme matches, so an explicit light choice is never overridden. */
+@media (prefers-color-scheme: dark) {
+  /* Sage and Indigo, dark */
+  :root:not([data-theme]) {
+    --bg: #1A1B17;
+    --surface: #22241F;
+    --surface-2: #2C2E28;
+    --fg: #E9E9DE;
+    --muted: #AFB1A3;
+    --border: #787B6E;
+    --accent: #B4A8EA;
+    --on-accent: #1A1530;
+    --link: #BDB2EE;
+    --focus: #F09A5E;
+    --track: #363830;
+    --send-bg: #221F33;
+    --send-edge: #A497E4;
+    --send-ink: #CBC2F3;
+    --probe-bg: #1E2819;
+    --probe-edge: #93B879;
+    --probe-ink: #BDD7A9;
+    --dev-bg: #252521;
+    --dev-edge: #99988E;
+    --dev-ink: #CCCBC1;
+    --ok: #7FD09A;
+    --ok-bg: #173121;
+    --work: #90B9F0;
+    --work-bg: #172438;
+    --warn: #EFB658;
+    --warn-bg: #33260F;
+    --fail: #F49488;
+    --fail-bg: #3A1A17;
+    --cam-bg: #000000;
+    color-scheme: dark;
+  }
+}
+
+/* Shared tokens, the same in every theme. */
+:root {
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+  --r-sm: 4px; --r-md: 8px; --r-lg: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 18px/1.4 var(--sans);
+}
+
+main { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }
+
+.tabs { display: flex; align-items: center; border-bottom: 2px solid var(--border); }
+.tabs a {
+  flex: 1;
+  padding: 14px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+}
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--on-accent); }
+
+.theme-chips { display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-3); }
+.theme-chips .chip {
+  flex: none;
+  width: 28px;
+  min-height: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: conic-gradient(var(--c1) 0 33.4%, var(--c2) 0 66.7%, var(--c3) 0);
+}
+.theme-chips .chip[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--focus); }
+
+h1 { font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; margin: 20px 0 var(--sp-2); }
+h2 { font-size: 1.2rem; margin: 0 0 8px; }
+
+label { display: block; margin: var(--sp-4) 0 var(--sp-2); font-weight: 600; line-height: 1.35; }
+.check { display: flex; align-items: center; gap: var(--sp-2); }
+.row { display: flex; gap: var(--sp-3); }
+.row label { flex: 1; }
+
+textarea, input[type="text"], input[type="password"], input[type="number"], input[type="file"], select {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+input[type="range"] { display: block; width: 100%; height: 40px; accent-color: var(--accent); }
+
+fieldset { margin: var(--sp-5) 0; padding: var(--sp-2) var(--sp-4) var(--sp-4); border: 2px solid var(--border); border-radius: var(--r-sm); }
+legend { font-weight: 700; padding: 0 6px; }
+
+button {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  margin: var(--sp-4) 0;
+  padding: 0 var(--sp-5);
+  font: 700 18px/1 var(--sans);
+  color: var(--fg);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+button.primary { min-height: 56px; min-width: 160px; padding: 0 var(--sp-6); font-size: 20px;
+  color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+button.primary:hover:not(:disabled) { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+button.secondary { background: var(--surface); }
+.g-send  button.secondary { color: var(--send-ink);  border-color: var(--send-edge); }
+.g-probe button.secondary { color: var(--probe-ink); border-color: var(--probe-edge); }
+button.secondary:hover:not(:disabled) { background: var(--surface-2); }
+button.dev { min-height: 48px; font: 700 16px/1 var(--mono); color: var(--dev-ink);
+  background: transparent; border: 2px dashed var(--dev-edge); }
+button.dev:hover:not(:disabled) { background: var(--surface); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { color: var(--muted); background: var(--surface-2); border: 2px dashed var(--border); box-shadow: none; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, .tabs a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.readout { font-weight: 700; margin: 16px 0; }
+
+/* Help lines and More (Tokens §5). */
+.help { font-size: 15px; line-height: 1.4; color: var(--muted); margin: var(--sp-1) 0 0; }
+details.more { margin-top: var(--sp-1); }
+details.more > summary { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600;
+  color: var(--link); cursor: pointer; list-style: none; min-height: 32px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: ""; border-left: 6px solid currentColor; border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent; transition: transform .15s; }
+details.more[open] > summary::before { transform: rotate(90deg); }
+details.more > summary:hover { text-decoration: underline; }
+.more-body { font-size: 16px; line-height: 1.5; color: var(--fg); background: var(--surface); max-width: 65ch;
+  border-left: 3px solid var(--border); border-radius: 0 var(--r-md) var(--r-md) 0; padding: var(--sp-2) var(--sp-3); margin-top: var(--sp-1); }
+.more-body p { margin: var(--sp-1) 0; }
+.more-body ul { margin: var(--sp-1) 0; padding-left: 20px; }
+details.png-more { margin-top: var(--sp-3); }
+details.png-more > fieldset { margin: var(--sp-2) 0 0; background: var(--surface); border-radius: var(--r-lg); }
+
+/* The three action groups (Tokens §5). */
+.grp { margin: var(--sp-5) 0; padding: var(--sp-3) var(--sp-4) var(--sp-4); border-radius: var(--r-lg); }
+.grp[hidden] { display: none; }
+.grp-h { display: flex; align-items: center; gap: 10px; margin: 0 0 var(--sp-3); font-size: 20px; font-weight: 700; line-height: 1.3; }
+.grp-desc { margin: 0 0 var(--sp-3); }
+.grp .num { display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; font-size: 15px; font-weight: 800; }
+.grp .tag { margin-left: auto; font-size: 13px; font-weight: 700; padding: 2px 8px; border: 1.5px solid currentColor; border-radius: var(--r-sm); }
+.grp .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.grp .actions button { display: inline-flex; align-items: center; justify-content: center; width: auto; margin: 0; }
+.grp .actions button[hidden] { display: none; }
+.grp .actions .inline-label { margin: 0; }
+
+.g-send  { background: var(--send-bg);  border: 2px solid var(--send-edge); border-left-width: 8px; }
+.g-send  .grp-h { color: var(--send-ink); }
+.g-send  .num { background: var(--send-edge); color: var(--on-accent); border-radius: 50%; }
+
+.g-probe { background: var(--probe-bg); border: 2px solid var(--probe-edge); }
+.g-probe .grp-h { color: var(--probe-ink); }
+.g-probe .num { border: 2px solid var(--probe-edge); border-radius: 6px; }
+.g-probe select { width: auto; min-width: 7em; border-color: var(--probe-edge); background: var(--surface); }
+
+.g-dev   { background: var(--dev-bg);   border: 2px dashed var(--dev-edge); }
+.g-dev > summary { cursor: pointer; list-style: none; margin: 0; color: var(--dev-ink); font-family: var(--mono); font-size: 19px; }
+.g-dev > summary::-webkit-details-marker { display: none; }
+.g-dev > summary::before { content: ""; border-left: 7px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent; transition: transform .15s; }
+.g-dev[open] > summary { margin-bottom: var(--sp-3); }
+.g-dev[open] > summary::before { transform: rotate(90deg); }
+.g-dev .num { border: 2px dashed var(--dev-edge); transform: rotate(45deg) scale(.82); }
+.g-dev .num b { transform: rotate(-45deg); }
+
+/* Status: word plus shape (Tokens §7). */
+.st { display: inline-flex; align-items: center; gap: .35em; font-weight: 700; padding: 2px 8px; border-radius: var(--r-md); }
+.st::before { content: ""; flex: none; width: .8em; height: .8em; background: currentColor; }
+.st-ok   { color: var(--ok);   background: var(--ok-bg); }    .st-ok::before   { border-radius: 50%; }
+.st-work { color: var(--work); background: var(--work-bg); }  .st-work::before { background: none; border: .18em solid currentColor;
+  border-right-color: transparent; border-radius: 50%; animation: st-spin 1.2s linear infinite; }
+.st-warn { color: var(--warn); background: var(--warn-bg); }  .st-warn::before { width: 1em; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.st-fail { color: var(--fail); background: var(--fail-bg); }  .st-fail::before { clip-path: polygon(20% 0,50% 30%,80% 0,100% 20%,70% 50%,100% 80%,80% 100%,50% 70%,20% 100%,0 80%,30% 50%,0 20%); }
+@keyframes st-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .st-work::before { animation: none; border-style: dotted; border-right-color: currentColor; } }
+
+.preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  max-height: 420px;
+  background: #000;
+  border: 2px solid var(--border);
+}
+#preview {
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+}
+
+.qr { margin-top: 32px; text-align: center; }
+.qr img { image-rendering: pixelated; }
+.url { word-break: break-all; color: var(--muted); }
+
+/* Receiver: the run view (Tokens §8). The camera box takes the stream's
+   shape from --cam-ar, set by receiver.js, so the overlay stays aligned. */
+body.rx-active { display: flex; flex-direction: column; }
+body.rx-active main { order: 1; max-width: none; padding: 0 0 var(--sp-7); }
+body.rx-active .tabs { order: 2; }                         /* tabs below the fold */
+#receive > :not(.rx-run) { max-width: 760px; margin-left: auto; margin-right: auto; padding-left: var(--sp-4); padding-right: var(--sp-4); }
+#receive > h1 { margin-top: var(--sp-5); }
+.rx-run { display: flex; background: var(--cam-bg); }
+.camera-box { position: relative; flex: none; margin: 0; border: 0; background: var(--cam-bg); aspect-ratio: var(--cam-ar, 16 / 9); }
+#rx-video { display: block; width: 100%; height: 100%; min-height: 0; object-fit: fill; }   /* box already matches the stream's shape */
+#rx-overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.rx-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; background: var(--surface); color: var(--fg); overflow: auto; }
+.rx-state { font-size: clamp(26px, 9.5svh, 34px); font-weight: 800; line-height: 1.05; letter-spacing: -0.01em; padding: 4px 8px; margin: 0; }
+.rx-state::before { width: .7em; height: .7em; }
+#rx-progress { width: 100%; height: 16px; margin: 0; accent-color: var(--accent); }
+#rx-progress.done { accent-color: var(--ok); }
+.rx-count { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.rx-count span { display: block; font-size: 14px; font-weight: 600; color: var(--muted); }
+.rx-signal p { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; }
+.rx-signal .rx-hint { font-weight: 400; }
+.rx-details { margin: auto 0 0; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.35;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* sideways phone: camera left fitted to the height, panel right */
+@media (orientation: landscape) and (max-height: 500px) {
+  .rx-run { flex-direction: row; height: 100vh; height: 100svh; padding-left: env(safe-area-inset-left); }
+  .camera-box { align-self: center; height: auto; max-height: 100%;
+    width: min(calc(100svh * var(--cam-ar, 1.7778)), calc(100vw - 250px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
+  .rx-panel { min-width: 250px; border-left: 2px solid var(--border);
+    padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) 12px; }
+}
+/* 844 x 322 gives a camera 572 x 322 (16:9) and a panel 272 wide. A 4:3 stream gives 429 x 322 and a wider panel. */
+
+/* upright phone: camera on top, panel under it */
+@media (orientation: portrait) {
+  .rx-run { flex-direction: column; }
+  .camera-box { align-self: center; width: min(100vw, calc(58svh * var(--cam-ar, 1.7778))); height: auto; }
+  .rx-panel { border-top: 2px solid var(--border); padding: var(--sp-3) var(--sp-4); }
+  .rx-state { font-size: 40px; }
+}
+/* laptop or TV viewing Receive (wide and tall): use the portrait stack, capped */
+@media (orientation: landscape) and (min-height: 501px) {
+  .rx-run { flex-direction: row; max-height: 80vh; }
+  .camera-box { width: min(70vw, calc(80vh * var(--cam-ar, 1.7778))); }
+  .rx-panel { border-left: 2px solid var(--border); padding: var(--sp-4); }
+}
+
+.rx-error { color: var(--fail); font-weight: 700; }
+.rx-error:empty, #rx-decode-message:empty, #rx-margin:empty { display: none; }
+
+.rx-result h2 { margin-top: 24px; }
+.rx-text {
+  margin: 0;
+  padding: 12px;
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 1rem/1.4 var(--mono);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.rx-file { font-weight: 700; word-break: break-all; }
+.rx-note { color: var(--muted); }
+.rx-file-log { padding-left: 20px; word-break: break-all; }
+
+/* Full screen transmission canvas. */
+.stage {
+  display: block;
+  background: #000;
+  width: 100vw;
+  height: 100vh;
+  cursor: none;
+}
+.stage[hidden] { display: none; }
+button[hidden] { display: none; } /* the button rule's display: block would otherwise show it */
+.stage.fallback { position: fixed; left: 0; top: 0; z-index: 1000; }
+html.transmitting, html.transmitting body { overflow: hidden; }
+
+.test-report table { border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
+.test-report th, .test-report td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; text-align: left; vertical-align: top; }
+
+/* Setup check on the Receive page */
+.setup-check { border: 1px solid var(--border); border-radius: var(--r-md); padding: 0.5rem 0.75rem; margin: 1rem 0; }
+.setup-check h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+.setup-aim { font-weight: 700; }
+.setup-recommendation { font-weight: 700; }
+.setup-table { overflow-x: auto; }
+.setup-table table { border-collapse: collapse; font-size: 0.9rem; }
+.setup-table th, .setup-table td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; text-align: left; }
+#setup-profile { white-space: pre-line; }
+.probe-status { font-size: 1.5rem; font-weight: 700; }
+.inline-label { display: inline; margin: 0 0 0 0.5rem; }

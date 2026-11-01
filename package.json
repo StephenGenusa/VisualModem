@@ -1,0 +1,17 @@
+{
+  "name": "visual-modem",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node tools/serve.js",
+    "capture": "node tools/serve.js --capture",
+    "dev": "http-server . -p 8443 -S -C certs/cert.pem -K certs/key.pem"
+  },
+  "devDependencies": {
+    "http-server": "14.1.1",
+    "jpeg-js": "0.4.4",
+    "pngjs": "7.0.0"
+  }
+}
