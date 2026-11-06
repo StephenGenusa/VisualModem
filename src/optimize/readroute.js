@@ -22,6 +22,15 @@ export function routeRead(collector, { read, frame }) {
   return isData;
 }
 
+/** The finder pass the next camera attempt should try first: the one that just
+ * produced a frame, unless that was the standard pass, which runs first anyway.
+ * A failed attempt clears it, and so does a version 4 frame with no good packet. */
+export function nextFinderHint(read, frame) {
+  if (!frame) return null;
+  if (frame.packets && !frame.packets.some(Boolean)) return null;
+  return read.finderPass === 'perspective' || read.finderPass === 'recovery' ? read.finderPass : null;
+}
+
 /** The header fields of a worker attempt. */
 export function attemptHeader(h, frame) {
   if (!h) return null;

@@ -119,8 +119,7 @@ test('a v3 frame with a blocked top strip is not misread', () => {
   assert.equal(read.reason, 'timing mismatch');
 });
 
-// read.exactCells for this image before four-edge timing (commit 1efd821,
-// measured at the RED step of stage 2b task 2).
+// read.exactCells for this image before four-edge timing (measured before it landed).
 const EXACT_CELLS_BEFORE = 44672;
 
 test('the fallback costs little when nothing matches', () => {

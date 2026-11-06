@@ -1,5 +1,5 @@
 import { peekManifest, decodePayload } from '../src/core/payload.js';
-import { openCamera, grabFrame } from './camera.js';
+import { openCamera, createCameraStarter, grabFrame } from './camera.js';
 import { classifyAttempt } from '../src/tune/attempts.js';
 import { nextAttemptDelay, JITTER_MS } from '../src/tune/pacing.js';
 import { setupSetupCheck } from './setupcheck.js';
@@ -24,7 +24,24 @@ let lastCollector = { txId: null, count: 0, have: 0, complete: false, crcPass: 0
 let ignoreComplete = false; // drops a 'complete' from the old collection until the reset reply arrives
 
 let cameraStream = null;
-let cameraGeneration = 0;
+const cameraStarter = createCameraStarter({
+  open: (isCurrent) => openCamera($('rx-video'), cameraResolution, isCurrent),
+  onStarting() {
+    showCameraError(null);
+    cameraState = 'starting';
+  },
+  onStream(stream) {
+    cameraStream = stream;
+    cameraState = 'running';
+    fitCameraBox();
+    renderRun();
+    scheduleAttempt();
+  },
+  onError(err) {
+    showCameraError(`Camera unavailable: ${err.message || err}. Open files still works.`);
+    cameraState = 'error';
+  },
+});
 let attemptTimer = null;
 let frameCallback = null; // pending requestVideoFrameCallback handle
 let busy = false; // a camera frame is posted and its status has not come back
@@ -247,39 +264,17 @@ function drawOverlay(read) {
 
 // ---- Camera ----
 
-async function startCamera() {
+function startCamera() {
   if (cameraStream) return;
-  const generation = ++cameraGeneration;
-  showCameraError(null);
   if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showCameraError('The camera needs an HTTPS page. Open files still works.');
     return;
   }
-  let stream;
-  try {
-    cameraState = 'starting';
-    stream = await openCamera($('rx-video'), cameraResolution);
-  } catch (err) {
-    if (generation === cameraGeneration) {
-      showCameraError(`Camera unavailable: ${err.message || err}. Open files still works.`);
-      cameraState = 'error';
-    }
-    return;
-  }
-  if (generation !== cameraGeneration) {
-    // The tab was left while the camera was opening.
-    for (const track of stream.getTracks()) track.stop();
-    return;
-  }
-  cameraStream = stream;
-  cameraState = 'running';
-  fitCameraBox();
-  renderRun();
-  scheduleAttempt();
+  cameraStarter.start();
 }
 
 function stopCamera() {
-  cameraGeneration++; // cancels a camera that is still opening
+  cameraStarter.stop(); // cancels a camera that is still opening
   if (attemptTimer !== null) clearTimeout(attemptTimer);
   attemptTimer = null;
   if (frameCallback !== null) $('rx-video').cancelVideoFrameCallback(frameCallback);
@@ -303,16 +298,16 @@ function stopCamera() {
 // frame changes. A reply or timer from before stopCamera has an old
 // generation and does nothing, so only one chain of attempts ever runs.
 function scheduleAttempt(grabbedAt = performance.now()) {
-  const generation = cameraGeneration;
+  const generation = cameraStarter.generation;
   const run = () => {
     attemptTimer = null;
-    if (generation === cameraGeneration && cameraStream) attempt(generation);
+    if (generation === cameraStarter.generation && cameraStream) attempt(generation);
   };
   const video = $('rx-video');
   if (typeof video.requestVideoFrameCallback === 'function') {
     frameCallback = video.requestVideoFrameCallback(() => {
       frameCallback = null;
-      if (generation !== cameraGeneration) return;
+      if (generation !== cameraStarter.generation) return;
       attemptTimer = setTimeout(run, JITTER_MS * Math.random());
     });
   } else {
@@ -336,7 +331,7 @@ function attempt(generation) {
     .then(() => {
       busy = false;
       if (attemptMs.length < 200) attemptMs.push(performance.now() - started);
-      if (generation === cameraGeneration && cameraStream) scheduleAttempt(started);
+      if (generation === cameraStarter.generation && cameraStream) scheduleAttempt(started);
     });
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { computeLayout } from '../src/picture/layout.js';
 import { renderFrame } from '../src/picture/render.js';
 import { homographyFromPoints, applyHomography } from '../src/picture/homography.js';
-import { warpToQuad, tiltQuad, blur, bloom, rotate90 } from '../src/testutil/distort.js';
+import { warpToQuad, tiltQuad, blur, bloom, rotate90, noise } from '../src/testutil/distort.js';
 import { toGray, binarize, findFinderCandidates, orientFinders } from '../src/picture/finder.js';
 
 const layout = computeLayout(40, 30);
@@ -98,4 +98,64 @@ test('a marker whose black center reflects the room is still found', () => {
   const o = orientFinders(findFinderCandidates(binarize(toGray(img), W, H), W, H));
   assert.ok(o, 'markers found');
   expect(o.bl, pad + 3.5 * 9, pad + 26.5 * 9, 2);
+});
+
+// A perspective view: x = 100 + 800u / (1 + g u), y = 100 + (600v + k u) / (1 + g u).
+// Its local scale at u = 1 is (1 + g)^-1.5 of that at u = 0, so g = 0.443 makes
+// the far markers 0.577 of the near ones' pitch, as on the real capture.
+function perspectiveQuad(pitchTl, pitchTr, pitchBl) {
+  const g = 0.443, k = 300 * (1 + g) - 300;
+  const at = (u, v) => ({ x: 100 + (800 * u) / (1 + g * u), y: 100 + (600 * v + k * u) / (1 + g * u) });
+  return [
+    { ...at(0, 0), pitch: pitchTl, size: 7 }, { ...at(1, 0), pitch: pitchTr, size: 7 },
+    { ...at(0, 1), pitch: pitchBl, size: 7 }, { ...at(1, 1), pitch: pitchTr, size: 5 },
+  ];
+}
+test('a far-side marker 6.0 against 10.4 and 10.5 is rejected by default and kept with perspective', () => {
+  const c = perspectiveQuad(10.4, 6.0, 10.5);
+  assert.equal(orientFinders(c), null);
+  const o = orientFinders(c, { perspective: true });
+  assert.ok(o, 'kept with perspective');
+  expect(o.tl, c[0].x, c[0].y, 0.01); expect(o.tr, c[1].x, c[1].y, 0.01); expect(o.bl, c[2].x, c[2].y, 0.01);
+  expect(o.br, c[3].x, c[3].y, 0.01);
+  assert.deepEqual(o.pitches, { tl: 10.4, tr: 6.0, bl: 10.5 });
+});
+test('pitches 10 and 4 (ratio 2.5) are rejected either way', () => {
+  const c = perspectiveQuad(10, 4, 10);
+  assert.equal(orientFinders(c), null);
+  assert.equal(orientFinders(c, { perspective: true }), null);
+});
+
+test('relaxed candidates stay few on a dark noisy image', () => {
+  const W = 1920, H = 1080, data = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) data.set([30, 30, 30, 255], i * 4);
+  const img = noise({ data, width: W, height: H }, 6, 1);
+  // Tile 16 is the plan's value; the reader's recovery pass uses 8 (see RECOVERY_TILE).
+  for (const tile of [16, 8]) {
+    const c = findFinderCandidates(binarize(toGray(img), W, H, tile), W, H, { outerMin: 0.25 });
+    assert.ok(c.filter((k) => k.size === 7).length <= 20, `tile ${tile}: ${c.filter((k) => k.size === 7).length} size 7 candidates`);
+  }
+});
+
+test('candidates carry their row and column block lengths', () => {
+  const quad = tiltQuad(frame.width, frame.height, 640, 480, 25, 0.8);
+  const img = warpToQuad(frame, quad, 640, 480);
+  const c = findFinderCandidates(binarize(toGray(img), 640, 480), 640, 480);
+  assert.ok(c.length > 0);
+  for (const k of c) assert.ok(Math.abs((k.pitchX + k.pitchY) / 2 - k.pitch) < 1e-9, JSON.stringify(k));
+});
+
+test('with require, perspective quads all use a required candidate', () => {
+  const c = perspectiveQuad(10.4, 6.0, 10.5);
+  // Decoys: a second top-right and a second small marker, near the real ones.
+  const decoyTr = { ...c[1], x: c[1].x + 3, y: c[1].y + 2 }, decoyBr = { ...c[3], x: c[3].x - 2, y: c[3].y + 3 };
+  const all = [...c, decoyTr, decoyBr];
+  const free = orientFinders(all, { perspective: true });
+  assert.ok(free.options.some((o) => o.tr[0] === c[1].x), 'the real top-right forms a quad without require');
+  const o = orientFinders(all, { perspective: true, require: new Set([decoyTr]) });
+  assert.ok(o.options.length > 0);
+  for (const q of o.options) assert.deepEqual(q.tr, [decoyTr.x, decoyTr.y]);
+  // A required small marker may complete a triple of old candidates.
+  const s = orientFinders(all, { perspective: true, require: new Set([decoyBr]) });
+  for (const q of s.options) assert.deepEqual(q.br, [decoyBr.x, decoyBr.y]);
 });

@@ -232,3 +232,53 @@ export function channelMix(img, columns, black = [0, 0, 0]) {
   }
   return out;
 }
+
+// The four image corners (tl, tr, br, bl) of a w by h screen seen by a pinhole
+// camera `distance` screen widths from the screen's center. The camera is
+// rotated yawDeg about the vertical axis and pitchDeg about the horizontal one;
+// a positive yaw puts the right edge farther away, a positive pitch the bottom
+// edge. `scale` is the share of outWidth the screen fills straight on.
+export function viewQuad(w, h, outWidth, outHeight, { yawDeg = 0, pitchDeg = 0, distance = 1.6, scale = 0.8 } = {}) {
+  const d = distance * w;
+  const f = (scale * outWidth * d) / w;
+  const ay = (yawDeg * Math.PI) / 180, ap = (pitchDeg * Math.PI) / 180;
+  const cy = Math.cos(ay), sy = Math.sin(ay), cp = Math.cos(ap), sp = Math.sin(ap);
+  const corners = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+  return corners.map(([X, Y]) => {
+    const x1 = X * cy, z1 = X * sy;        // yaw about the vertical axis
+    const y2 = Y * cp - z1 * sp, z2 = Y * sp + z1 * cp; // pitch about the horizontal axis
+    return [(f * x1) / (d + z2) + outWidth / 2, (f * y2) / (d + z2) + outHeight / 2];
+  });
+}
+
+// Darkens and blurs an image progressively toward the far edge of `quad` (the
+// shorter side of the quad is the far one). At the far edge the brightness
+// factor is 1 - dim and the blur radius is blurPx; at the near edge nothing
+// changes. The ramp is linear across the quad, along the direction of the far side.
+export function farSideFalloff(img, quad, { dim = 0, blurPx = 0 } = {}) {
+  if (dim <= 0 && blurPx <= 0) return copy(img);
+  const [tl, tr, br, bl] = quad;
+  const len = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const hl = len(tl, bl), hr = len(tr, br), wt = len(tl, tr), wb = len(bl, br);
+  let ux = (hl - hr) / (hl + hr), uy = (wt - wb) / (wt + wb);
+  const un = Math.hypot(ux, uy);
+  if (un === 0) return copy(img);
+  ux /= un; uy /= un;
+  const proj = quad.map(([x, y]) => x * ux + y * uy);
+  const lo = Math.min(...proj), span = Math.max(...proj) - lo;
+  const { width, height } = img;
+  const levels = [img];
+  for (let r = 1; r <= Math.ceil(blurPx); r++) levels.push(blur(img, r));
+  const out = blank(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = Math.min(Math.max(((x + 0.5) * ux + (y + 0.5) * uy - lo) / span, 0), 1);
+      const r = t * blurPx, r0 = Math.floor(r), r1 = Math.min(r0 + 1, levels.length - 1), k = r - r0;
+      const gain = 1 - dim * t;
+      const o = (y * width + x) * 4;
+      for (let c = 0; c < 3; c++) out.data[o + c] = (levels[r0].data[o + c] * (1 - k) + levels[r1].data[o + c] * k) * gain;
+      out.data[o + 3] = 255;
+    }
+  }
+  return out;
+}

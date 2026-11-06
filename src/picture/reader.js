@@ -4,7 +4,7 @@
 // samples every data cell and parses the frame. Grid coordinates are block
 // units with cell (col, row) centered at (col + 0.5, row + 0.5).
 
-import { toGray, toGrayHalf, binarize, findFinderCandidates, orientFinders } from './finder.js';
+import { toGray, toGrayHalf, binarize, findFinderCandidates, orientFinders, TILE, OUTER_MIN } from './finder.js';
 import { homographyFromPoints, affineFromPoints, applyHomography } from './homography.js';
 import { computeLayout, computeLayoutV4, HEADER_CELLS_V4, MIN_COLS, MIN_ROWS, BOTTOM_TIMING_START } from './layout.js';
 import { bytesFromBlocks, decideLevel } from '../core/symbols.js';
@@ -42,12 +42,68 @@ const CORRECTED_REACH = 3; // the corrected search only tries sizes this close t
 // another strip test on a read that may fail anyway. A tilted frame's
 // estimate can be off by 3 columns, so this is the corrected reach.
 const FALLBACK_REACH = CORRECTED_REACH;
+// The perspective pass gives this many of its quads, best first, the corrected
+// search after all of them had the exact one.
+const PERSPECTIVE_CORRECTED_OPTIONS = 1;
 // A strip outside the accepted pair is measured for the blend only when it
 // already reads this nearly right; random data cells change about half the time.
 const EXTRA_MATCH = 0.8;
 // Radial lens strengths tried, about the image center, with r normalized to
 // half the diagonal: image point o and undistorted point u = o * (1 + k r^2).
 const LENS_STEPS = [0, -0.01, 0.01, -0.02, 0.02, -0.03, 0.03, -0.04, 0.04, -0.06, 0.06];
+
+// The finder's first scan uses its default threshold tile and outer ring
+// minimum (TILE and OUTER_MIN in finder.js). The recovery pass scans again with a finer tile, which follows a
+// dim far side's local contrast, and accepts an outer dark ring a quarter of
+// a block long, which is what a soft far side leaves of it. On the real
+// angled capture (test/photos, 1920 x 1080) the top-right marker became a
+// candidate with tiles of 6, 8, 12 and 14 pixels but not 10 or 16; with 8
+// it did so with an outer minimum of 0.5 too, so 8 has the widest margin.
+const RECOVERY_TILE = 8;
+const RECOVERY_OUTER_MIN = 0.25;
+const RECOVERY_MIN_MARKERS = 2; // large marker candidates the first scan must have found
+// More new large candidates than this and the recovery scan found data, not
+// a washed-out marker: a dark noisy 1080p image gives none (test/finder.test.js
+// allows 20), and the quads of hundreds would cost more than the read.
+const RECOVERY_MAX_NEW = 20;
+// The recovery pass fits only its best quads (the best also gets the
+// corrected pass): on frames that run out of view the scan finds a few new
+// large candidates in the data, and six quads cost a fifth more than two.
+// The real angled capture fits on its best quad.
+const RECOVERY_OPTIONS = 2;
+// The recovery scan costs about 40 ms at 1080p, half again a cheap failing
+// read, so it runs only when the first scan found two large markers joined by
+// a timing strip: a frame in view whose third marker may have washed out. A
+// frame running out of view shows one marker, or none joined to another.
+// The strip test follows the line 2.5 to 3.5 blocks beside the two centers
+// and finds its longest chain of alternating runs, each 0.6 to 1.5 local
+// blocks long, as a share of the runs a strip there would have. Measured on
+// every pair of first scan candidates: real marker pairs on the angled shots
+// (yaw 15 to 45, and -25 to -35 for version 3) and the real capture, 0.86 to
+// 1.16; pairs in the frames that run out of view at most 0.43, and in data
+// mostly under 0.6. A false candidate on a real strip can score high, which
+// only lets the scan run, as it did before.
+const STRIP_CHAIN_MIN = 0.7;
+const STRIP_MIN_BLOCKS = 10; // a pair closer than this along the strip is no frame edge
+// Pairs tested at most, in candidate order: about 0.1 ms a pair at 1080p.
+const STRIP_MAX_PAIRS = 100;
+const STRIP_SMALL_PITCH = 1.5; // the ratio of a large marker's pitch to a small one's, either way
+// A grid fitted to a frontal view gives no readable header because of what it
+// shows, not because the fit is wrong: then the later passes, which look for
+// a better fit under perspective, are skipped. Frontal is when each pair of
+// opposite marker-quad edges agree within this ratio (after the small
+// marker's offset of one block). Measured: frames tilted 3 degrees 1.00 to
+// 1.02; the angled views whose wrong-size fits the later passes correct
+// (60x34 at 25 to 45 degrees) 1.25 to 2.1, or no small marker. A frontal quad
+// is not enough on its own: a 137x77 frame at yaw 5 (distance 0.9) or 7 (1.2)
+// has a frontal-looking quad of false lower markers and a wrong fit (140x65
+// and 137x65) accepted on the top and right strips. So the fit must also have
+// been accepted on the top and left strips, which every version has, and its
+// size must agree with the quad: each edge's length over the mean pitch,
+// plus 7, within FRONTAL_SIZE_BLOCKS of the fitted columns and rows (the
+// frames tilted 3 degrees agree exactly).
+const FRONTAL_EDGE_RATIO = 1.1;
+const FRONTAL_SIZE_BLOCKS = 2;
 
 const luminance = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -581,10 +637,13 @@ function searchGridSize(img, markers, cols, rows, patch, pass, stats) {
 // before any gets the corrected one: a false marker can pass the corrected
 // search's slack at a wrong size, as on a tilted gray frame, while the real
 // marker matches exactly. Returns { layout, H, br } or null.
-function fitGrid(img, markers, cols, rows, patch, stats) {
+function fitGrid(img, markers, cols, rows, patch, stats, passes = ['exact', 'corrected']) {
   const { tl, tr, bl } = markers;
-  const candidates = [...(markers.brCandidates ?? (markers.br ? [markers.br] : [])), null];
-  for (const pass of ['exact', 'corrected']) {
+  // A perspective option names its small marker; the affine map from three
+  // markers cannot fit a grid seen at the angle that option is for.
+  const affine = markers.pitches ? [] : [null];
+  const candidates = [...(markers.brCandidates ?? (markers.br ? [markers.br] : [])), ...affine];
+  for (const pass of passes) {
     for (const br of candidates) {
       const fit = searchGridSize(img, { tl, tr, bl, br }, cols, rows, patch, pass, stats);
       if (fit) return { ...fit, br };
@@ -798,59 +857,387 @@ function computeMargin(raw, calib, gray = false) {
 
 // Estimates the grid size from one oriented triple and fits it. Returns
 // { layout, H, corners, pitch, patch } or null.
-function fitOption(img, option, stats) {
-  const { width, height } = img;
+function fitOption(img, option, stats, passes) {
   const { tl, tr, bl, pitch } = option;
-  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  // Nothing finer than MIN_PITCH pixels per block is readable, so cap the estimate.
-  const maxSize = Math.floor(Math.max(width, height) / MIN_PITCH) + 7; // either axis may hold the columns
-  const cols = Math.min(Math.round(dist(tl, tr) / pitch) + 7, maxSize);
-  const rows = Math.min(Math.round(dist(tl, bl) / pitch) + 7, maxSize);
-  const patch = Math.max(1, Math.floor(pitch / 3));
-  const fit = fitGrid(img, option, cols, rows, patch, stats);
+  const { cols, rows, patch } = sizeEstimate(img, option);
+  const fit = fitGrid(img, option, cols, rows, patch, stats, passes);
   if (!fit) return null;
   // br is the small marker the timing strips confirmed, or null for the affine map.
   return { layout: fit.layout, G: fit.G, edges: fit.G.edges, corners: { tl, tr, bl, br: fit.br }, pitch, patch };
 }
 
+// The grid size and sampling patch an option's fit starts from.
+function sizeEstimate(img, option) {
+  const { width, height } = img;
+  const { tl, tr, bl, pitch } = option;
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  // Nothing finer than MIN_PITCH pixels per block is readable, so cap the estimate.
+  const maxSize = Math.floor(Math.max(width, height) / MIN_PITCH) + 7; // either axis may hold the columns
+  let cols = Math.min(Math.round(dist(tl, tr) / pitch) + 7, maxSize);
+  let rows = Math.min(Math.round(dist(tl, bl) / pitch) + 7, maxSize);
+  let patch = Math.max(1, Math.floor(pitch / 3));
+  const p = option.pitches; // only the perspective pass gives each marker's own pitch
+  if (p) {
+    // Under perspective the far side's markers are smaller, so the mean of all
+    // three is wrong for both edges: each edge's size comes from the pitches of
+    // the two markers on it, and the patch must fit the far side's cells.
+    cols = Math.min(Math.round(dist(tl, tr) / ((p.tl + p.tr) / 2)) + 7, maxSize);
+    rows = Math.min(Math.round(dist(tl, bl) / ((p.tl + p.bl) / 2)) + 7, maxSize);
+    patch = Math.max(1, Math.floor(Math.min(p.tl, p.tr, p.bl) / 3));
+    // Better, when the scan measured each marker's row and column lengths:
+    // the size from the quad's homography (see homographySize).
+    const h = homographySize(option, cols - 7, rows - 7);
+    if (h) {
+      cols = Math.min(h.cols + 7, maxSize);
+      rows = Math.min(h.rows + 7, maxSize);
+    }
+  }
+  return { cols, rows, patch };
+}
+
+// The grid size from the homography of the quad's four marker centers, as
+// blocks between the large markers' centers: { cols, rows } or null.
+//
+// The homography maps (0,0), (1,0), (0,1) onto tl, tr, bl and (1 + 1/a0,
+// 1 + 1/b0) onto br, whose center is one block further out, so its
+// Jacobian at a marker, divided by the unknown block counts a (along the top
+// edge) and b (down the left edge), is the local map from blocks to pixels.
+// A row of pixels through a marker's center crosses its rings at det / |D|
+// pixels a block when the rings it crosses are the ones across the top edge
+// (|D| / b >= |C| / a), where [A B; C D] is the unit square Jacobian and det
+// its determinant over a b; a column of pixels crosses them at det / |A|.
+// So each large marker's row length (pitchX) and column length (pitchY) give
+// one estimate of a and one of b, with no assumption that blocks look square.
+// The mean pitch could not: under a strong angle the far side's blocks are
+// far narrower than they are tall. The small marker is left out: it has one
+// center block, so a dim, soft far side biases its lengths most. a0 and b0
+// (the edge estimate) only decide which rings a row or column crosses.
+// Measured on angled test shots (137x77 to 60x34, yaw 0 to 35 degrees): within
+// 2 blocks of the true size, where the edge estimate was up to 20 short.
+export function homographySize(option, a0, b0) {
+  const { tl, tr, bl, br, axes } = option;
+  if (!axes || !br || a0 <= 0 || b0 <= 0) return null;
+  let H;
+  try {
+    // The small marker's center is one block further out along both edges.
+    H = homographyFromPoints([[0, 0], [1, 0], [1 + 1 / a0, 1 + 1 / b0], [0, 1]], [tl, tr, br, bl]);
+  } catch {
+    return null; // a degenerate quad
+  }
+  const as = [], bs = [];
+  for (const [k, u, v] of [['tl', 0, 0], ['tr', 1, 0], ['bl', 0, 1]]) {
+    const w = H[6] * u + H[7] * v + H[8];
+    const [x, y] = applyHomography(H, u, v);
+    const A = (H[0] - x * H[6]) / w, B = (H[1] - x * H[7]) / w;
+    const C = (H[3] - y * H[6]) / w, D = (H[4] - y * H[7]) / w;
+    const det = Math.abs(A * D - B * C);
+    const [pitchX, pitchY] = axes[k];
+    if (Math.abs(D) / b0 >= Math.abs(C) / a0) as.push(det / (Math.abs(D) * pitchX)); else bs.push(det / (Math.abs(C) * pitchX));
+    if (Math.abs(A) / a0 >= Math.abs(B) / b0) bs.push(det / (Math.abs(A) * pitchY)); else as.push(det / (Math.abs(B) * pitchY));
+  }
+  const geomean = (v) => Math.exp(v.reduce((s, e) => s + Math.log(e), 0) / v.length);
+  if (!as.length || !bs.length || ![...as, ...bs].every((e) => Number.isFinite(e) && e > 0)) return null;
+  // perMarker: each marker's estimates, for diagnostics and tests.
+  return { cols: Math.round(geomean(as)), rows: Math.round(geomean(bs)), perMarker: { cols: as, rows: bs } };
+}
+
 // ---- exports ----
 
-// Finds the markers and fits the grid. Returns { found } or { failure }.
-function findMarkers(gray, width, height, scale) {
-  const candidates = findFinderCandidates(binarize(gray, width, height), width, height)
-    .map((c) => ({ ...c, x: c.x * scale, y: c.y * scale, pitch: c.pitch * scale }))
+// The candidates of one scan, in full size image coordinates.
+function scanCandidates(search, tile, outerMin) {
+  const { gray, width, height, scale } = search;
+  return findFinderCandidates(binarize(gray, width, height, tile), width, height, { outerMin })
+    .map((c) => ({ ...c, x: c.x * scale, y: c.y * scale, pitch: c.pitch * scale, pitchX: c.pitchX * scale, pitchY: c.pitchY * scale }))
     .filter((c) => c.pitch >= MIN_PITCH);
-  return orientFinders(candidates);
+}
+
+// Finds the markers and fits the grid. Returns { found } or { failure }.
+// The candidates and the gray image they came from are kept for the
+// perspective and recovery passes. work.candidates counts the candidates
+// oriented, over all passes (read.finderCandidates, for diagnostics).
+function findMarkers(gray, width, height, scale, work) {
+  const search = { gray, width, height, scale };
+  const candidates = scanCandidates(search, TILE, OUTER_MIN);
+  work.candidates += candidates.length;
+  return { markers: orientFinders(candidates), candidates, search };
 }
 
 // The markers, searched at half size first on a large image. When no triple is
 // found there (markers too fine, for example), the full size search runs, so a
 // large image reads at least everything it read before.
-function searchMarkers(img) {
+function searchMarkers(img, work) {
   const { width, height } = img;
   if (width * height >= HALF_SIZE_PIXELS) {
     const half = toGrayHalf(img);
-    const markers = findMarkers(half.gray, half.width, half.height, 2);
-    if (markers) return { markers, finderScale: 2 };
+    const found = findMarkers(half.gray, half.width, half.height, 2, work);
+    if (found.markers) return { ...found, finderScale: 2 };
   }
-  return { markers: findMarkers(toGray(img), width, height, 1), finderScale: 1 };
+  return { ...findMarkers(toGray(img), width, height, 1, work), finderScale: 1 };
 }
 
-function locate(img) {
-  const { markers, finderScale } = searchMarkers(img);
-  if (!markers) return { failure: { markersFound: false, reason: 'no markers', finderScale } };
-  return { ...fitMarkers(img, markers, finderScale, true), markers, finderScale };
+// The longest chain of alternating runs along the line beside candidates a
+// and b where a timing strip between them would run, as a share of the runs
+// that strip would have (see STRIP_CHAIN_MIN). The block length is taken as
+// changing linearly from a's pitch to b's; the line is tried on both sides,
+// 2.5, 3 and 3.5 blocks out, since perspective moves it. b may be the small
+// marker, whose center is a block nearer the strip (the right and bottom
+// strips of version 4 end at it), so the line's offset there is a block less.
+// Coordinates are those of the search image.
+function stripChain(search, a, b) {
+  const { gray, width, height, scale } = search;
+  const ax = a.x / scale, ay = a.y / scale, pa = a.pitch / scale, pb = b.pitch / scale;
+  const L = Math.hypot(b.x / scale - ax, b.y / scale - ay);
+  const ux = (b.x / scale - ax) / L, uy = (b.y / scale - ay) / L;
+  const pAt = (t) => pa + ((pb - pa) * t) / L;
+  const t0 = 4.5 * pa, n = Math.floor(L - 4.5 * pb - t0);
+  if (n < STRIP_MIN_BLOCKS * Math.max(pa, pb)) return 0;
+  // The runs a strip would have: the integral of dt / p(t) over the line.
+  const expected = Math.abs(pb - pa) < 1e-9 ? n / pa : (L / (pb - pa)) * Math.log(pAt(t0 + n) / pAt(t0));
+  const chunk = Math.max(8, Math.round(4 * Math.min(pa, pb))); // the threshold's span
+  const shift = b.size === 5 ? 1 : 0;
+  const values = new Uint8Array(n);
+  const mids = new Float64Array(Math.ceil(n / chunk));
+  let best = 0;
+  for (const side of [1, -1]) {
+    for (const off of [2.5, 3, 3.5]) {
+      let inside = true;
+      for (let i = 0; i < n && inside; i++) {
+        const t = t0 + i, d = (off - (shift * t) / L) * pAt(t) * side;
+        const x = Math.floor(ax + ux * t - uy * d), y = Math.floor(ay + uy * t + ux * d);
+        if (x < 0 || y < 0 || x >= width || y >= height) inside = false;
+        else values[i] = gray[y * width + x];
+      }
+      if (!inside) continue;
+      // Each chunk's threshold is the middle of the chunk and its neighbours,
+      // which follows a dim far side; a flat span (NaN) breaks the chain.
+      for (let c = 0; c < mids.length; c++) {
+        let lo = 255, hi = 0;
+        for (let i = Math.max(0, (c - 1) * chunk); i < Math.min(n, (c + 2) * chunk); i++) {
+          if (values[i] < lo) lo = values[i];
+          if (values[i] > hi) hi = values[i];
+        }
+        mids[c] = hi - lo < 16 ? NaN : (lo + hi) / 2;
+      }
+      let chain = 0, longest = 0, start = 0, prev = -1;
+      for (let i = 0; i <= n; i++) {
+        const mid = i < n ? mids[(i / chunk) | 0] : NaN;
+        const state = i === n ? -2 : Number.isNaN(mid) ? -1 : values[i] <= mid ? 1 : 0;
+        if (state === prev) continue;
+        // The run that ends here. The first and last, cut by the line's ends, never count.
+        if (start > 0 && i < n) {
+          const len = i - start, p = pAt(t0 + (start + i) / 2);
+          if (prev >= 0 && len >= 0.6 * p && len <= 1.5 * p) longest = Math.max(longest, ++chain);
+          else chain = 0;
+        }
+        start = i;
+        prev = state;
+      }
+      best = Math.max(best, longest / expected);
+    }
+  }
+  return best;
+}
+
+// True when two of the large candidates, or a large one and a small one, are
+// joined by a timing strip. The large pairs are tried first (the top and left
+// strips, every version), then large and small ones (version 4's right and
+// bottom strips): a view whose far top-left marker washed out shows only the
+// top-right and bottom-left on a diagonal, and the small marker beside them.
+// A small candidate is paired only with a large one whose pitch is within
+// STRIP_SMALL_PITCH of its own. At most STRIP_MAX_PAIRS pairs in all.
+export function joinedPair(search, big, small = []) {
+  let pairs = 0;
+  const joined = (a, b) => ++pairs <= STRIP_MAX_PAIRS && stripChain(search, a, b) >= STRIP_CHAIN_MIN;
+  for (let i = 0; i < big.length; i++) {
+    for (let j = i + 1; j < big.length; j++) if (joined(big[i], big[j])) return true;
+  }
+  for (const a of big) {
+    for (const b of small) {
+      const r = a.pitch / b.pitch;
+      if (r <= STRIP_SMALL_PITCH && r >= 1 / STRIP_SMALL_PITCH && joined(a, b)) return true;
+    }
+  }
+  return false;
+}
+
+// True when each pair of opposite marker-quad edges agree (see
+// FRONTAL_EDGE_RATIO). Without a small marker the quad is unknown: false.
+function frontalQuad({ tl, tr, bl, br }, cols, rows) {
+  if (!br) return false;
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  // The small marker's center is one block further out than a large one's.
+  const right = (d(tr, br) * (rows - 7)) / (rows - 6) / d(tl, bl);
+  const bottom = (d(bl, br) * (cols - 7)) / (cols - 6) / d(tl, tr);
+  const within = (r) => r <= FRONTAL_EDGE_RATIO && r >= 1 / FRONTAL_EDGE_RATIO;
+  return within(right) && within(bottom);
+}
+
+// True when the fitted grid's marker quad shows no perspective and its size
+// agrees with the quad (see FRONTAL_EDGE_RATIO).
+function frontalFit(found) {
+  const { tl, tr, bl } = found.corners;
+  const { cols, rows } = found.layout;
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const agrees = (len, size) => Math.abs(len / found.pitch + 7 - size) <= FRONTAL_SIZE_BLOCKS;
+  const edges = found.edges.split('+');
+  if (!edges.includes('top') || !edges.includes('left')) return false;
+  if (!agrees(d(tl, tr), cols) || !agrees(d(tl, bl), rows)) return false;
+  return frontalQuad(found.corners, cols, rows);
+}
+
+const samePoint = (a, b) => a[0] === b[0] && a[1] === b[1];
+
+// True when the earlier option t already made the quad o's fit: the same
+// triple, o's small marker among t's candidates, and the same size estimate
+// and patch. The standard pass fits a triple with its own small marker
+// candidates and the mean pitch, so a quad with the same triple but another
+// small marker or estimate is a new fit.
+function alreadyTried(img, o, t) {
+  if (!['tl', 'tr', 'bl'].every((k) => samePoint(o[k], t[k]))) return false;
+  if (!(t.brCandidates ?? (t.br ? [t.br] : [])).some((b) => samePoint(b, o.br))) return false;
+  const a = sizeEstimate(img, o), b = sizeEstimate(img, t);
+  return a.cols === b.cols && a.rows === b.rows && a.patch === b.patch;
+}
+
+// New candidates of the recovery scan: one within a pitch of a first scan
+// candidate of the same size is the same marker.
+function newCandidates(old, found) {
+  return found.filter((c) => !old.some((o) => o.size === c.size && Math.hypot(o.x - c.x, o.y - c.y) <= Math.max(o.pitch, c.pitch)));
+}
+
+// Fits the quads (perspective or recovery options) that no earlier option
+// already fitted, at most exactCount of them, and adds them to `tried`. Every quad gets the exact pass
+// first; only the best gets the corrected (lens) pass, which costs about ten
+// times as much and on a failing image would make the read cost far more
+// than today's. Returns a located result, or null when no quad is new.
+function quadPass(img, options, tried, finderScale, finderPass, exactCount = Infinity) {
+  const fresh = options.filter((o) => !tried.some((t) => alreadyTried(img, o, t))).slice(0, exactCount);
+  if (!fresh.length) return null;
+  tried.push(...fresh);
+  const markers = { ...fresh[0], options: fresh };
+  const tries = [...fresh.map((o) => [o, ['exact']]), ...fresh.slice(0, PERSPECTIVE_CORRECTED_OPTIONS).map((o) => [o, ['corrected']])];
+  const fit = fitMarkers(img, markers, finderScale, true, tries);
+  return fit.found
+    ? { found: { ...fit.found, finderPass }, markers, finderScale, pass: finderPass }
+    : { failure: fit.failure, markers, finderScale, finderPass, pass: finderPass };
+}
+
+// The finder passes, in order, each as a located result ({ found, markers,
+// finderScale } or { failure }) with its own exactCells:
+// - standard: today's search;
+// - perspective: the same candidates oriented again as perspective quads
+//   (see orientFinders), the quads the standard pass did not already fit;
+// - recovery: the image scanned again with a finer threshold tile and a
+//   lower outer ring minimum, for a far-side marker whose dark ring the dim,
+//   soft far side washed out. Its candidates join the first scan's, and only
+//   quads that use at least one new candidate are fitted. It runs on the
+//   gray image the first scan used (half size on 4K), once.
+// A caller stops at the first pass that gives what it needs. work.candidates
+// counts the candidates each pass oriented. A hint runs that pass first and
+// the others after it in this order; each pass still fits only quads no other
+// pass fits, so a fallback repeats no fit. Each located result names its pass.
+const PASS_ORDER = ['standard', 'perspective', 'recovery'];
+const byPass = (a, b) => PASS_ORDER.indexOf(a.pass) - PASS_ORDER.indexOf(b.pass);
+
+// True when today's best triple is a frame seen square on: its quad shows no
+// perspective and timing strips join its top and left edges. Both are needed:
+// under perspective the best triple is often a frontal-looking false one in the
+// data, which no strip joins. It costs a few strip samples and no fit.
+function frontalMarkers(img, search, markers) {
+  const { tl, tr, bl, pitch } = markers;
+  const { cols, rows } = sizeEstimate(img, markers);
+  if (!frontalQuad(markers, cols, rows)) return false;
+  const at = ([x, y]) => ({ x, y, pitch, size: 7 });
+  return stripChain(search, at(tl), at(tr)) >= STRIP_CHAIN_MIN && stripChain(search, at(tl), at(bl)) >= STRIP_CHAIN_MIN;
+}
+
+function* finderPasses(img, work, hint = null) {
+  const { markers, candidates, finderScale, search } = searchMarkers(img, work);
+  const tried = markers ? [...markers.options] : [];
+  let perspective = null;
+  const run = {
+    standard() {
+      const standard = markers
+        ? { ...fitMarkers(img, markers, finderScale, true), markers, finderScale }
+        : { failure: { markersFound: false, reason: 'no markers', finderScale } };
+      if (standard.found) standard.found.finderPass = 'standard';
+      return Object.assign(standard, { pass: 'standard' });
+    },
+    perspective() {
+      work.candidates += candidates.length;
+      const relaxed = orientFinders(candidates, { perspective: true });
+      perspective = relaxed && quadPass(img, relaxed.options, tried, finderScale, 'perspective');
+      return perspective;
+    },
+    recovery() {
+      // The recovery scan looks for a far-side marker beside near ones the first
+      // scan found; with fewer than two large ones there is nothing to complete.
+      // And it runs only when the first scan's candidates formed no new quad the
+      // perspective pass could fit: when they did, the candidates already hold
+      // quads consistent with a perspective view, and the scan and its fits
+      // would mostly add cost to a read that fails for another reason (a 295x166 frame of 4 px blocks, for one, found 733 new
+      // candidates and spent 1 s on their quads, against 0.58 s for the read).
+      // And only when two of them, or one and a small one, are joined by a timing
+      // strip (see joinedPair). A recovery hint skips the perspective check: the
+      // pass runs before the perspective pass does.
+      const big = candidates.filter((c) => c.size === 7);
+      if (perspective || big.length < RECOVERY_MIN_MARKERS) return null;
+      if (!joinedPair(search, big, candidates.filter((c) => c.size === 5))) return null;
+      const added = newCandidates(candidates, scanCandidates(search, RECOVERY_TILE, RECOVERY_OUTER_MIN));
+      work.candidates += added.length; // counted even when the cap stops the pass
+      if (!added.length || added.filter((c) => c.size === 7).length > RECOVERY_MAX_NEW) return null;
+      work.candidates += candidates.length;
+      const recovered = orientFinders([...candidates, ...added], { perspective: true, require: new Set(added) });
+      return recovered && quadPass(img, recovered.options, tried, finderScale, 'recovery', RECOVERY_OPTIONS);
+    },
+  };
+  // A hint on a frontal view is stale: it runs the normal order, which reads it
+  // as with no hint, at no extra cost. Fitting the hinted pass first cost a
+  // frontal frame with no readable header 15710 strip cells against 595.
+  const stale = !hint || (markers && frontalMarkers(img, search, markers));
+  for (const pass of stale ? PASS_ORDER : [hint, ...PASS_ORDER.filter((p) => p !== hint)]) {
+    const located = run[pass]();
+    if (located) yield located;
+  }
+}
+
+const ownCells = (located) => (located.found ?? located.failure).exactCells ?? 0;
+
+// A failed read reports what today's search found, unless only the recovery
+// pass found a quad: then its corners, since that pass's whole point is a
+// marker the first scan missed. exactCells is every pass's work.
+function failureOf(failures, exactCells) {
+  const recovery = failures.find((f) => f.finderPass === 'recovery');
+  const base = recovery ? recovery.failure : failures[0].failure;
+  // A read with no markers and no pass's work has no count, as before.
+  return base.exactCells === undefined && exactCells === 0 ? base : { ...base, exactCells };
+}
+
+// The first pass that fits a grid, with exactCells counting every pass so
+// far; or the failure of them all.
+function locate(img, work) {
+  const failures = [];
+  let cells = 0;
+  for (const located of finderPasses(img, work)) {
+    cells += ownCells(located);
+    if (located.found) {
+      if (failures.length) located.found.exactCells = cells; // the standard pass's own count stays as it was
+      return located;
+    }
+    failures.push(located);
+  }
+  return { failure: failureOf(failures, cells) };
 }
 
 // Fits the grid to the found markers. With fourEdge false only the top and
 // left strips are used, exactly as for version 2 and 3 frames before version 4.
-function fitMarkers(img, markers, finderScale, fourEdge) {
+function fitMarkers(img, markers, finderScale, fourEdge, tries = null) {
   // Each oriented triple, best first, is checked against the timing strips;
   // the first that fits wins. A failed read reports the best triple's corners.
   let found = null;
   const stats = { cells: 0, fourEdge };
-  for (const option of markers.options ?? [markers]) {
-    found = fitOption(img, option, stats);
+  for (const [option, passes] of tries ?? (markers.options ?? [markers]).map((o) => [o])) {
+    found = fitOption(img, option, stats, passes);
     if (found) break;
   }
   if (!found) {
@@ -950,6 +1337,7 @@ function readWith(img, found, G) {
     correction: { maxX: largest(G.fx, layout.cols, layout.rows, true), maxY: largest(G.fy, layout.rows, layout.cols, false), lens: G.lens ? G.lens.k : 0 }, // for diagnostics
     edges: found.edges, // the timing strips that accepted the grid, and any blended in
     finderScale: found.finderScale, // 2 when the markers were found at half size
+    finderPass: found.finderPass, // 'perspective' when only the perspective pitch rule found the markers
     exactCells: found.exactCells, // strip cells the exact size search sampled, for diagnostics
   };
 }
@@ -963,12 +1351,18 @@ const usesFourEdges = (found) => found.edges !== edgeName(TOP_LEFT[0], []);
 function topLeftAgain(img, located) {
   const again = fitMarkers(img, located.markers, located.finderScale, false);
   const cells = located.found.exactCells + (again.found ?? again.failure).exactCells;
-  if (again.failure) again.failure.exactCells = cells; else again.found.exactCells = cells;
+  if (again.failure) again.failure.exactCells = cells; else Object.assign(again.found, { exactCells: cells, finderPass: located.found.finderPass });
   return again;
 }
 
+// read.finderCandidates: the marker candidates every finder pass that ran
+// oriented, for diagnostics (test/failcost.test.js bounds it on failing reads).
 export function readCameraFrame(img) {
-  const located = locate(img);
+  const work = { candidates: 0 };
+  return Object.assign(readLocated(img, locate(img, work)), { finderCandidates: work.candidates });
+}
+
+function readLocated(img, located) {
   if (located.failure) return located.failure;
   const read = readWith(img, located.found, located.found.G);
   if (read.version === 4 || !usesFourEdges(located.found)) return read;
@@ -991,14 +1385,57 @@ function parse(read) {
   }
 }
 
-export function decodeCameraFrame(img) {
-  let located;
-  try {
-    located = locate(img);
-  } catch (err) {
-    return { read: { markersFound: false, reason: err.message }, frame: null };
+// Like readCameraFrame, and a grid that fits but gives no readable header
+// does not end the search: a wrong-size fit on the standard pass can pass the
+// timing strips, so the later finder passes still run. When none decodes, the
+// first unreadable read is the answer, with every pass's work in exactCells.
+// A frontal fit with no readable header ends the search (see FRONTAL_EDGE_RATIO).
+// hint ('perspective' or 'recovery', the pass that read the last camera frame)
+// runs that pass first, without the standard fit a view at an angle fails. When
+// it gives no frame the other passes run; what a read with no frame reports does
+// not depend on the order they ran in.
+export function decodeCameraFrame(img, { hint = null } = {}) {
+  const work = { candidates: 0 };
+  const out = decodePasses(img, work, hint);
+  out.read.finderCandidates = work.candidates;
+  return out;
+}
+
+function decodePasses(img, work, hint) {
+  const failures = [];
+  let cells = 0, unreadable = null, ranStandard = false;
+  const passes = finderPasses(img, work, hint);
+  for (;;) {
+    let next;
+    try {
+      next = passes.next();
+    } catch (err) {
+      return { read: { markersFound: false, reason: err.message }, frame: null };
+    }
+    if (next.done) break;
+    const located = next.value;
+    cells += ownCells(located);
+    ranStandard ||= located.pass === 'standard';
+    if (located.failure) { failures.push(located); continue; }
+    if (failures.length || unreadable) located.found.exactCells = cells;
+    const out = decodeLocated(img, located);
+    if (out.read.markersFound === false) return out; // the second fit threw
+    cells += out.read.exactCells - located.found.exactCells; // a second top and left fit adds its work
+    if (out.frame) return out;
+    if (out.read.reason) { failures.push({ failure: out.read, pass: located.pass }); continue; } // the top and left fit failed
+    if (!unreadable || byPass(located, unreadable.located) < 0) unreadable = { out, located };
+    if (ranStandard && frontalFit(located.found)) break; // a hinted pass that ran first ends nothing
   }
-  if (located.failure) return { read: located.failure, frame: null };
+  if (unreadable) {
+    unreadable.out.read.exactCells = cells;
+    return unreadable.out;
+  }
+  return { read: failureOf(failures.sort(byPass), cells), frame: null };
+}
+
+// Decodes a located frame. A frame that reads as version 2 or 3 but was
+// fitted with the bottom or right strips is fitted again on the top and left.
+function decodeLocated(img, located) {
   const out = decodeFound(img, located.found);
   if (out.read.version === 4 || !usesFourEdges(located.found)) return out;
   let again;

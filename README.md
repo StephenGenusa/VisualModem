@@ -31,7 +31,9 @@ Measured on one test setup: a 4K TV as the sender, and a phone browser reading w
 
 | Setting | Result |
 |---|---|
-| 200 KB file, block 28, 8-color cube, 10 frames a second, fountain coding | complete in 8.4 to 8.9 s, about 23 KB/s, with under 1% extra pieces |
+| 200 KB file, block 28, 8-color cube, 10 frames a second, fountain coding | complete in 8.3 to 8.9 s, about 23 KB/s, with under 1% extra pieces |
+| The same file with the phone handheld, about 20 degrees off-square | complete in 9.7 s |
+| Still frames at an angle, with all four corners in view | read at up to 45 degrees to one side and 25 to the other; 35 to the other side read only partly |
 | The same file without fountain coding (version 3 frames) | 18 s, and up to 88 s when one frame keeps being missed |
 | A probe run's best measured setting (block 28, 8-color cube, 10 fps) | about 30 KB/s |
 | A hand over one timing edge of the grid during a run | every read still works |
@@ -46,7 +48,7 @@ These numbers depend on the screen, the camera, the room and the aim. The built-
 3. **Frames.** Each frame carries a 24-byte header, drawn twice in a robust 8-color code, and as many packets as fit. Each packet is a Reed Solomon codeword with its own CRC-16, so a frame torn by the camera's rolling shutter still gives up its intact packets. The payload is split into equal codewords of at most 255 bytes, so no part of the frame is wasted.
 4. **The grid.** The grid has three large corner markers and a small fourth one, timing strips of alternating blocks along all four edges, a calibration strip of reference colors, alignment patterns and pilot cells. Data cells hold 1 to 6 bits each, depending on the color scheme.
 5. **Reading.**
-   - The phone finds the markers and maps the tilted view back to a flat grid.
+   - The phone finds the markers and maps the tilted view back to a flat grid. At an angle the far markers look smaller and dimmer, so if the first search fails, it scores sets of four markers by how well their sizes fit the perspective. It then tries whichever search worked last first.
    - It checks the grid size against the timing strips, correcting for lens bend. If one strip is covered, it uses the strip on the opposite edge instead.
    - It calibrates the colors from the reference strip, undoes the camera's color mixing, and samples every cell.
    - It repairs each codeword and keeps the packets whose CRC passes.

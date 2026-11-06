@@ -10,10 +10,11 @@ import { estimateColumns } from '../src/tune/attempts.js';
 import { analyzeCharacterization } from '../src/optimize/characterize.js';
 import { truthFrame, measureErrors } from '../src/optimize/linkerrors.js';
 import { attemptRecord } from '../src/optimize/attemptlog.js';
-import { routeRead, attemptHeader, packetMaskOf } from '../src/optimize/readroute.js';
+import { routeRead, attemptHeader, packetMaskOf, nextFinderHint } from '../src/optimize/readroute.js';
 
 const collector = new Collector();
 let lastTxId = null; // transmission id already delivered as 'complete'
+let finderHint = null; // the finder pass that read the last camera attempt, tried first on the next
 
 function stripRead(read) {
   if (!read) return null;
@@ -27,8 +28,9 @@ function handleCamera({ data, width, height, grabMs, measure = false }) {
   // decodeCameraFrame never throws on image content. The parity strip is one bit,
   // so it cannot tell frames apart; every frame with markers is parsed.
   const decodeStart = performance.now();
-  const { read, frame, sample } = decodeCameraFrame({ data: new Uint8ClampedArray(data), width, height });
+  const { read, frame, sample } = decodeCameraFrame({ data: new Uint8ClampedArray(data), width, height }, { hint: finderHint });
   const decodeMs = performance.now() - decodeStart;
+  finderHint = nextFinderHint(read, frame);
   // Probe and characterization frames measure the light path; only data
   // frames (and version 2 frames, which have no type) go to the collector.
   const h = read.frameHeader ?? null;
@@ -118,6 +120,7 @@ function handleImage({ data, width, height }) {
 function handleReset() {
   collector.reset();
   lastTxId = null;
+  finderHint = null;
   return { read: null };
 }
 

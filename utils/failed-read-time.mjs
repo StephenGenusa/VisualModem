@@ -1,23 +1,52 @@
-// Usage: node utils/failed-read-time.mjs
-// Times failing camera decodes of v4 probe frames (new tree only).
+// Usage: node utils/failed-read-time.mjs [--reader <tree>] [--runs <n>] [--json]
+// Times camera decodes of the failed-read cost set (src/testutil/failcases.js):
+// failing reads that are not angled (bound 1.3x the reader before the perspective pass),
+// angled views that still fail (bound 2.5x), and reads that succeed. Each
+// image is decoded --runs times (default 5) and the median is reported, with
+// the reader's work counters exactCells and finderCandidates.
+// --reader times the reader of another tree, such as a worktree of the commit
+// before the perspective pass; the images always come from this
+// tree, so both readers see the same pixels. --json prints one JSON object per
+// image instead of the table. When test/photos holds the real angled capture,
+// it is timed too (kind 'photo').
+import { existsSync } from 'node:fs';
+
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-const { computeLayoutV4 } = await import(root + '/src/picture/layout.js');
-const { renderFrame } = await import(root + '/src/picture/render.js');
-const { frameToBlocksV4 } = await import(root + '/src/core/framev4.js');
-const { buildProbeFrameV4 } = await import(root + '/src/optimize/probes.js');
-const D = await import(root + '/src/testutil/distort.js');
-const { decodeCameraFrame } = await import(root + '/src/picture/reader.js');
-const scheme = { kind: 'rgb', levels: [2, 2, 2] };
-for (const [cols, rows, bp, bl, k1] of [[295, 166, 4, 2, 0.02], [246, 138, 5, 3, 0.02], [202, 113, 6, 1, 0], [137, 77, 9, 1, 0]]) {
-  const layoutV4 = computeLayoutV4(cols, rows);
-  const probe = { id: 1, blockSize: bp, scheme, parity: 32, fps: 4 };
-  const { frameBytes } = buildProbeFrameV4({ probe, txId: 9, index: 0, layoutV4, probeCount: 5 });
-  const blocks = frameToBlocksV4(frameBytes, scheme, layoutV4);
-  const screen = renderFrame({ frameBytes, index: 0, scheme, blockSize: bp, layout: layoutV4, blocks, version: 4 });
-  let img = D.warpToQuad(screen, D.tiltQuad(screen.width, screen.height, 1920, 1080, 3, 0.88), 1920, 1080);
-  if (k1) img = D.lensDistort(img, k1);
-  img = D.blur(img, bl); img = D.brightnessContrast(img, 0.2, 0.9); img = D.noise(img, 3, 5);
-  const t = []; let r;
-  for (let i = 0; i < 3; i++) { const s = performance.now(); r = decodeCameraFrame(img); t.push(Math.round(performance.now() - s)); }
-  console.log(cols + 'x' + rows, r.frame ? 'ok ' + r.read.edges : r.read.reason, t.join(','), 'cells', r.read.exactCells);
+const args = process.argv.slice(2);
+const opt = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
+const readerRoot = opt('--reader', root).replace(/\/$/, '');
+const runs = Number(opt('--runs', 5));
+const json = args.includes('--json');
+
+const { FAIL_CASES } = await import(root + '/src/testutil/failcases.js');
+const { decodeCameraFrame } = await import((readerRoot.startsWith('/') ? '' : process.cwd() + '/') + readerRoot + '/src/picture/reader.js');
+
+const cases = [...FAIL_CASES];
+const photo = root + '/test/photos/capture-2026-11-01T22-41-33-145Z.png';
+if (existsSync(photo)) {
+  const { readImage } = await import(root + '/src/testutil/image.js');
+  cases.push({ name: 'real angled capture', kind: 'photo', build: () => readImage(photo) });
+}
+
+for (const { name, kind, build } of cases) {
+  const img = build();
+  const ms = [];
+  let out;
+  for (let i = 0; i < runs; i++) {
+    const start = performance.now();
+    out = decodeCameraFrame(img);
+    ms.push(performance.now() - start);
+  }
+  ms.sort((a, b) => a - b);
+  const { read, frame } = out;
+  const row = {
+    name, kind,
+    outcome: frame ? 'ok' : read.reason ?? 'header unreadable',
+    pass: read.finderPass ?? null,
+    medianMs: Math.round(ms[Math.floor(ms.length / 2)]),
+    exactCells: read.exactCells ?? null,
+    finderCandidates: read.finderCandidates ?? null,
+  };
+  if (json) console.log(JSON.stringify(row));
+  else console.log(name.padEnd(28), kind.padEnd(8), row.outcome.padEnd(18), String(row.medianMs).padStart(5), 'ms', 'cells', row.exactCells, 'candidates', row.finderCandidates);
 }
