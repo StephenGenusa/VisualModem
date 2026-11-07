@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cameraRequest, CAMERA_CHOICES } from '../src/tune/camerachoice.js';
+import { cameraRequest, resetRequest, CAMERA_CHOICES } from '../src/tune/camerachoice.js';
 
 test('the phone offers 1080p and 4K', () => {
   assert.deepEqual(CAMERA_CHOICES.map((c) => c.id), ['1080p', '4k']);
@@ -10,7 +10,7 @@ test('a server that never asked for a camera leaves the phone\'s choice alone', 
   assert.deepEqual(cameraRequest({ camera: '1080p', cameraSeq: 0 }, null), { camera: null, seq: 0 });
 });
 
-test('a new request from the test runner is followed once', () => {
+test('a new request through the project server is followed once', () => {
   const first = cameraRequest({ camera: '4k', cameraSeq: 3 }, 2);
   assert.deepEqual(first, { camera: '4k', seq: 3 });
   // The same request on the next reply does not undo a choice made since.
@@ -21,7 +21,7 @@ test('a request for the size already chosen still counts as a request', () => {
   assert.deepEqual(cameraRequest({ camera: '1080p', cameraSeq: 4 }, 3), { camera: '1080p', seq: 4 });
 });
 
-test('the first reply after loading follows a request the runner already made', () => {
+test('the first reply after loading follows a camera request already made', () => {
   assert.deepEqual(cameraRequest({ camera: '4k', cameraSeq: 7 }, null), { camera: '4k', seq: 7 });
 });
 
@@ -29,4 +29,20 @@ test('no state, an old server or an unknown size asks for nothing', () => {
   assert.deepEqual(cameraRequest(null, 2), { camera: null, seq: 2 });
   assert.deepEqual(cameraRequest({ camera: '4k' }, null), { camera: null, seq: null });
   assert.deepEqual(cameraRequest({ camera: '8k', cameraSeq: 5 }, 4), { camera: null, seq: 5 });
+});
+
+test('a new reset seq starts the phone fresh once; the first reply after loading only notes it', () => {
+  assert.deepEqual(resetRequest({ reset: { seq: 4 } }, null), { reset: false, seq: 4 });
+  assert.deepEqual(resetRequest({ reset: { seq: 5 } }, 4), { reset: true, seq: 5 });
+  assert.deepEqual(resetRequest({ reset: { seq: 5 } }, 5), { reset: false, seq: 5 });
+  // A server restarted since counts from 1 again: any change is news.
+  assert.deepEqual(resetRequest({ reset: { seq: 1 } }, 5), { reset: true, seq: 1 });
+});
+
+test('no state, no reset or a bad seq asks for no reset', () => {
+  assert.deepEqual(resetRequest(null, 3), { reset: false, seq: 3 });
+  assert.deepEqual(resetRequest({ camera: '4k', cameraSeq: 1 }, null), { reset: false, seq: 0 }, 'none asked for yet');
+  assert.deepEqual(resetRequest({ camera: '4k', cameraSeq: 1 }, 0), { reset: false, seq: 0 });
+  assert.deepEqual(resetRequest({ reset: { seq: 1 } }, 0), { reset: true, seq: 1 }, 'the first request after that is followed');
+  assert.deepEqual(resetRequest({ reset: { seq: 'x' } }, 3), { reset: false, seq: 3 });
 });

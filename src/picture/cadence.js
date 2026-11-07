@@ -34,6 +34,16 @@ export function actualFps(refreshHz, fps) {
 }
 
 /**
+ * The rate the stage will really show for a slider value on a screen, and
+ * whether it differs from the slider's by more than 0.01.
+ * @returns {{ fps: number, differs: boolean }}
+ */
+export function shownRate(fps, refreshHz) {
+  const shown = actualFps(refreshHz, fps);
+  return { fps: shown, differs: Math.abs(shown - fps) > 0.01 };
+}
+
+/**
  * Distinct cells, by index in a cols x rows grid, for the stage's pixel
  * self-check: count of them (or every cell when the grid is smaller), the
  * same for a seed.

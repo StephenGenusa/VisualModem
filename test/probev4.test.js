@@ -94,3 +94,54 @@ test('the attempt names its good packets', () => {
   assert.equal(rec.packetMask, '11011011111111');
   assert.equal(attemptRecord({ atMs: 1, grabMs: 1, decodeMs: 1, read: out.read, frame: null, debug: null, errors: null }).packetMask, undefined);
 });
+
+test('a parity 0 probe frame round trips and a wrong byte fails only its packet', () => {
+  const p0 = { ...probe, parity: 0 };
+  const { frameBytes, shape } = buildProbeFrameV4({ probe: p0, txId: TX, index: 3, layoutV4, probeCount: 50 });
+  assert.equal(shape.packetBytes, shape.codewordBytes - 7);
+  const clean = parseFrameV4(frameBytes);
+  assert.equal(clean.header.parity, 0);
+  assert.equal(clean.packets.length, shape.packets);
+  clean.packets.forEach((q, k) => {
+    assert.ok(q, `packet ${k}`);
+    assert.deepEqual(q.data, probePayload(TX, 3 * shape.packets + k, shape.packetBytes));
+  });
+  const bad = frameBytes.slice();
+  bad[2 * 48 + 3 * shape.codewordBytes + 20] ^= 0x5a;
+  const out = parseFrameV4(bad);
+  out.packets.forEach((q, k) => assert.equal(q === null, k === 3, `packet ${k}`));
+});
+
+test('a Refine test frame round trips the run id, the refine flag and white', async () => {
+  const { PROBE_FLAGS } = await import('../src/core/frame.js');
+  const refine = { ...probe, refine: true, white: 223 };
+  const { frameBytes } = buildProbeFrameV4({ probe: refine, txId: TX, index: 1, layoutV4, probeCount: 15, runId: 0xdeadbeef });
+  const { header } = parseFrameV4(frameBytes);
+  assert.equal(header.streamLength, 0xdeadbeef);
+  assert.equal(header.sourceCount, 223);
+  assert.equal(header.probeRefine, true);
+  assert.equal(header.probeStatic, false);
+  assert.equal(header.probeFps, 4);
+  assert.equal(PROBE_FLAGS.refine, 4);
+  const whole = parseFrameV4(buildProbeFrameV4({ probe: { ...refine, static: true }, txId: TX, index: 0, layoutV4, probeFps: 30, shownFps: 30 }).frameBytes).header;
+  assert.equal(whole.probeFps, 30); assert.equal(whole.probeStatic, true); assert.equal(whole.probeRefine, true);
+  const plain = parseFrameV4(make(0).frameBytes).header;
+  assert.equal(plain.probeRefine, false); assert.equal(plain.streamLength, 0);
+  const attempt = attemptHeader(header, parseFrameV4(frameBytes));
+  assert.equal(attempt.streamLength, 0xdeadbeef); assert.equal(attempt.sourceCount, 223); assert.equal(attempt.probeRefine, true);
+});
+
+test('a Refine frame names no probe count and reaches the phone with its test ids', async () => {
+  const { attemptHeader: toAttempt } = await import('../src/optimize/readroute.js');
+  const { createTestCounter } = await import('../src/optimize/testcount.js');
+  const test3 = { ...probe, id: 3, refine: true, white: 255 };
+  const { frameBytes } = buildProbeFrameV4({ probe: test3, txId: TX, index: 0, layoutV4, probeCount: 0, runId: 41 });
+  const frame = parseFrameV4(frameBytes);
+  assert.equal(frame.header.probeCount, 0);
+  const counter = createTestCounter();
+  counter.add({ atMs: 5, header: toAttempt(frame.header, frame) });
+  const [t] = counter.report();
+  assert.equal(t.runId, 41);
+  assert.equal(t.probeId, 3);
+  assert.equal(t.packets, frame.packets.length);
+});

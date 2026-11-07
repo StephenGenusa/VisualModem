@@ -31,11 +31,16 @@ Measured on one test setup: a 4K TV as the sender, and a phone browser reading w
 
 | Setting | Result |
 |---|---|
-| 200 KB file, block 28, 8-color cube, 10 frames a second, fountain coding | complete in 8.3 to 8.9 s, about 23 KB/s, with under 1% extra pieces |
-| The same file with the phone handheld, about 20 degrees off-square | complete in 9.7 s |
+| 200 KB file, block 23, 8-color cube, parity 32, 10 frames a second, fountain coding (the defaults; TV filling about 65% of the camera's width, square on, 8 runs) | 6.2 s on average, about 33 KB/s; from 5.2 to 7.2 s |
+| Timed runs of the same file, the defaults against block 28, parity 32, 15 frames a second, alternating, 10 runs each, TV at about 62% of the camera's width | 5.3 s against 7.2 s in one session and 6.3 s against 11.4 s in another; the defaults were faster beyond the noise both times |
+| The same, with strong glare on the screen | neither setting completed: the phone could not find the screen's markers |
+| The same file and settings at 12, 15, 20 and 30 frames a second | 6.5 s (7 runs), 6.8 s (6 runs), 7.7 s (4 runs), 15.1 s (1 run) |
+| The same file at parity 16, 15 frames a second (12 runs) | 6.7 s on average; from 5.0 to 9.5 s |
+| The same file at block 28, parity 32, 10 frames a second (earlier runs) | complete in 8.3 to 8.9 s |
+| The same file with the phone handheld, about 20 degrees off-square | complete in 9.7 s (block 28, 10 frames a second) |
 | Still frames at an angle, with all four corners in view | read at up to 45 degrees to one side and 25 to the other; 35 to the other side read only partly |
 | The same file without fountain coding (version 3 frames) | 18 s, and up to 88 s when one frame keeps being missed |
-| A probe run's best measured setting (block 28, 8-color cube, 10 fps) | about 30 KB/s |
+| A Probe figure at block 23, 8-color cube, parity 16, 15 fps (one 2.5 s showing; single readings swing widely) | 47.5 KB/s |
 | A hand over one timing edge of the grid during a run | every read still works |
 | Block 19, where no whole frame ever read | about 15 KB/s from partly read frames |
 
@@ -55,7 +60,7 @@ These numbers depend on the screen, the camera, the room and the aim. The built-
    - It solves for the source pieces, then checks the SHA-256.
 6. **Measuring.** Probe frames carry a known pattern, so the phone can score every block size, color scheme and frame rate by the good packets it actually reads, and recommend the best setting for where it stands.
 
-The payload always travels by light. The optional network path (`npm run capture`) carries only measurements and debug reports, used by Auto tune, the test runner and development.
+The payload always travels by light. The optional network path (`npm run capture`) carries only measurements, debug reports and control: Refine and Timed runs tell the phone what is on screen and read its progress, Choose settings reads Probe's best from the phone's reports, and every report goes to the debug log.
 
 ## Quick start
 
@@ -104,11 +109,12 @@ The Send page has a short help line under every control, and a "More" link that 
 1. Type a message, or choose a file. The message box starts with a sample message; choosing a file clears it so the file is sent.
 2. Optionally type a password. The receiver must then type the same password.
 3. Set the screen settings:
+   * **Choose settings:** a menu of settings known for this screen: the current settings, Refine's last result, Probe's best from the phone (with `npm run capture`, only a best that is new since the page loaded), settings timed with Timed runs (with their mean time), earlier Refine winners (up to 8, the best at each block size kept first), and a safe default. Pick a line and press **Apply** to set block size, color scheme, levels, parity, frame rate and white together. Fountain coding is left as it is.
    * **Block size:** the width of one block in pixels. Bigger blocks read from farther away but carry less.
    * **Color scheme and levels:** how a block's color carries bits. The 8-color cube (2 levels per channel) carried the most in testing. Black and white is the safest at small blocks. The receiver needs no setting, because every frame's header names its scheme.
    * **Fountain coding:** on by default. Leave it on for live sending.
-   * **Parity:** error correction per codeword. 32 is the measured default.
-   * **Frames per second:** how fast frames change. Fountain coding is what makes the higher rates pay.
+   * **Parity:** error correction per codeword. 32 is the default. At block 23 it matched parity 16 on average file time and varied less, and at block 28 lower values fell off badly when off square.
+   * **Frames per second:** how fast frames change. Faster can send more until tearing costs more than it gains; on the test setup that was above 10 frames a second.
    * **White level:** dims the whole frame for a bright or glossy screen.
 4. Read the readout line. It shows the packets per frame and the number of source frames, or says why the data does not fit.
 5. Press **Start**. The grid fills the screen and loops until you press Escape, click or tap it.
@@ -119,11 +125,12 @@ The Send page groups its actions:
 
 * **Send:** Start, and saving PNG files. No network needed.
 * **Find the best settings:** Probe. No network needed.
-* **Development and testing:** Auto tune and Run tests. These appear only with `npm run capture`.
+* **Refine the settings:** Refine and its time limit. These appear only with `npm run capture`.
+* **Measure:** Timed runs, its runs per setting and Compare with. These appear only with `npm run capture`.
 
 ## Receiving
 
-1. Open the Receive page and allow the camera. Hold the phone sideways, with the screen centered and filling 85 to 90% of the view. A tripod helps.
+1. Open the Receive page and allow the camera. Hold the phone sideways, with the TV centered and the phone square to it. The best run had the TV at about 70% of the camera's width, and smaller blocks need it closer. A tripod helps.
 2. The camera view fills the phone's height, so you can always see the bottom edge of what the camera sees. The panel beside it shows:
    * the state, large enough to read from a distance;
    * progress, with elapsed and remaining time;
@@ -141,9 +148,9 @@ Probe finds the setting that moves the most data by light alone, for the phone w
 1. Put the phone on the Receive page, pointed at the screen.
 2. Choose the number of loops and press **Probe**.
 
-The screen steps through block sizes from 45 down to 9. Each size starts with a characterization frame, then shows one probe per color scheme and a static twin. A frame rate sweep at blocks 35 and 28 follows, at 4 to 15 frames a second. One loop takes about 160 seconds.
+The screen steps through block sizes from 45 down to 9. Each size starts with a characterization frame, then shows one probe per color scheme and a static twin. A frame rate sweep at blocks 35, 28, 23 and 19 follows, at 4 to 30 frames a second, and then a parity sweep at block 28 (parity 0 to 48 at 10 and 15 frames a second) that shows which amount of error correction gives the most bytes a second. One loop takes about 230 seconds.
 
-The phone scores each probe by the distinct good packets it reads per second. It also reports the **partial gain**: how much more partly read frames deliver than whole frames alone. At the end it shows a recommendation such as "Use block 28, Color cube, 2 levels, 10 frames per second. About 30.0 KB/s here."
+The phone scores each probe by the distinct good packets it reads per second. It also reports the **partial gain**: how much more partly read frames deliver than whole frames alone. At the end it shows a recommendation such as "Use block 28, Color cube, 2 levels, parity 16, 15 frames per second. About 33.0 KB/s here."
 
 The Setup check panel, further down the Receive page, shows:
 * aiming advice;
@@ -153,12 +160,23 @@ The Setup check panel, further down the Receive page, shows:
 
 With `npm run capture`, the phone also posts every probe's numbers, and a record of each read, to `test/photos/debug.jsonl`. `node tools/probe-report.js [--since <ISO time>] test/photos/debug.jsonl` tabulates them.
 
+## Refine
+
+Refine works out the best settings by itself. It needs `npm run capture`: the frames still go by light, and only the phone's counts travel over the network, so it appears only with the capture server.
+
+1. Put one phone on the Receive page, pointed at the screen.
+2. Choose a time limit of 1, 3, 5 or 30 minutes and press **Refine**. It waits up to 20 s for the phone.
+3. Walk away. The phone's big status shows the run from across the room.
+
+Each test shows one setting for 2 or 6 seconds. A run starts from the Send page's settings, earlier winners on this screen and, with the color cube at 2 levels, a built-in list of known good settings: 3 in all at 1 minute, 7 at 3 minutes, 11 at 5 minutes and 20 at 30 minutes, each with a full test. It then surveys block, parity and frame rate evenly with short tests, each time the setting farthest from those tried. From the survey it takes up to 6 candidates at least 2 steps apart, tunes each a step at a time (white included), and spends the rest of the time repeating the best few in turn. A short test only drops settings reading under half the best, and a block whose short tests in a round mostly fail (all of its first 3, or three in four after that) is left out of the rest of that round's survey. A 30 minute run does this three times, testing the first setting again each time, so a change in the light shows; the result then names the best setting before the change, the best after it, and the steadiest across both. The color scheme stays as it is. The phone counts the distinct good pieces of each test, and the computer turns those into bytes a second.
+
+At the end the Send page is set to the winner, which needs 3 full readings. Among settings that differ only in parity, within the noise of the best and at least 90% of it, the highest parity wins, since it held up far better under glare; these ties are named. Otherwise the Send page gets the leader, labelled provisional when it had fewer than 3 readings, another setting read higher by more than the noise on fewer readings, or the run was cut short. A table lists the settings tested with their mean, range and readings, and the previous settings are named so they can be set back by hand. Escape, or a run where nothing reads, changes nothing. If the phone leaves, that test does not count and Refine waits; after 30 s it stops with what it has. If 3 tests in a row read nothing (a short survey test counts as a third), it tests its best setting again; if that fails too, the phone has lost its aim, those readings are set aside, and it keeps showing that setting until it reads or 30 s pass. Too near the end to test it again, those readings are set aside and the result is labelled provisional. Each test and the result go in `test/photos/debug.jsonl` as `refine` entries. A run that sets a winner that is not provisional is kept in the browser for this screen size, with the color scheme and levels it ran on, and offered in **Choose settings**.
+
 ## Development tools
 
 These need `npm run capture`, which lets the phone report back to the computer. They measure; they never carry the payload.
 
-* **Auto tune** shows test frames, steps the block size down until reads fail, and sets the smallest block size that reads reliably at 2 and at 4 levels.
-* **Run tests** runs Auto tune at each phone camera size (1080p and 4K), then times a file at several frame rates, and shows a report table.
+* **Timed runs**, in the Measure panel on the Send page, sends the current message or file by light again and again, as Start does, and times each transfer with the phone's own clock, from its first piece to the last. **Runs per setting** is 3, 5 or 10. **Compare with** is Nothing, or a line from Choose settings other than Current; with one, the runs alternate, the Send page settings first. The full screen stays open for the whole series, and the phone is told a series is running, as Refine does, so it keeps its screen on and shows which run is on. Before each run the screen goes black and the phone starts fresh, as its Reset button does; the request is sent again every 2 s, the run starts when the phone reports that it holds nothing, and fails if that takes over 10 s. A run that gets no new pieces for 30 s, or takes over 3 minutes, fails and the series goes on; after 5 s with no new pieces the screen says so. While the phone's reports stop, its page is in the background or its camera is off, the screen says why and the series waits; after 30 s of that the series stops with the runs so far, as Escape does. The phone's clock does not stop meanwhile, so a run during which the phone was away, or found no markers in 10 camera reads in a row after its first piece, is not timed: it is listed with the reason and left out of the mean, the speed and the comparison. A transfer that fits in one frame gives the phone no time to measure, so the series does not start; choose a larger file or a longer message. A setting whose frame cannot hold the data, or that fits it in one frame, fails its runs with the reason; for the Send page settings the series does not start. The report gives each setting's times, mean, range, speed (the transfer's bytes over the mean time) and the runs not timed, and with two settings whether they differ beyond the noise (a two-sided 95% Student t test on the difference of the mean log times, from the pooled spread of both, with na + nb - 2 degrees of freedom), which is faster when they do, and how much more or less time B took than A, from the geometric means. Each run and the result go in `test/photos/debug.jsonl` as `timed` entries. Nothing changes the Send page settings.
 * **Send camera frame to computer** on the Receive page saves one camera image on the computer, for `node tools/decode-photo.js <image>`.
 
 ## Code layout
@@ -168,7 +186,7 @@ These need `npm run capture`, which lets the phone report back to the computer. 
 | `src/core` | Bytes to frames and back: payload packing, compression, encryption, Reed Solomon, CRC, the fountain code, the version 3 and 4 frame formats, transmission and collection |
 | `src/picture` | Frames to pixels and back: grid layout, rendering, the exact PNG reader, the marker finder, the homography, and the camera reader |
 | `src/optimize` | Probe frames and their known patterns, the scorer, error measurement, aiming advice and the camera characterization frame |
-| `src/tune` | Auto tune and the test runner's logic |
+| `src/tune` | Read attempt classification, pacing and the phone's camera choice |
 | `src/testutil` | Image I/O and a camera simulator (tilt, lens bend, blur, brightness, color cast, noise) for tests |
 | `web` | The page: Send and Receive tabs, the full screen stage, the camera, the background reader, the phone's run panel, themes |
 | `web/vendor` | qrcode-generator 1.4.4 (MIT), served locally so the page works offline |

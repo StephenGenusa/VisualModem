@@ -38,9 +38,10 @@ export function attemptHeader(h, frame) {
   return {
     version: h.version, frameType: h.frameType, probeId: h.probeId, probeCount: h.probeCount,
     scheme: h.scheme, blockSize: h.blockSize, parity: h.parity,
-    txId: h.txId, index: h.index, probeFps: h.probeFps, probeStatic: h.probeStatic,
+    txId: h.txId, index: h.index, probeFps: h.probeFps, probeStatic: h.probeStatic, probeRefine: h.probeRefine,
     ...(h.version === 4 ? {
       sourceCount: h.sourceCount,
+      streamLength: h.streamLength,
       goodPackets: frame ? frame.packets.filter(Boolean).length : 0,
       ...(frame ? { symbolIds: frame.packets.filter(Boolean).map((q) => q.symbolId) } : {}),
       ...(mask ? { packetCount: mask.length, packetMask: mask } : {}),

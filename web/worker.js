@@ -54,10 +54,11 @@ function handleCamera({ data, width, height, grabMs, measure = false }) {
   return { read, debug, attempt, profile, record };
 }
 
-// The per attempt record of a version 3 probe read, with its errors measured
-// against the known payload. Null for any other read.
+// The per attempt record of a probe read, with its errors measured against the
+// known payload. Null for any other read, and for a Refine test's: a test stands
+// in for a real transfer, which does not pay this decode time.
 function probeRecord({ grabMs, decodeMs, read, frame, debug, header }) {
-  if (!header || header.frameType !== FRAME_TYPES.probe) return null;
+  if (!header || header.frameType !== FRAME_TYPES.probe || header.probeRefine) return null;
   let errors = null;
   try {
     errors = measureErrors(read, truthFrame(header, readBytes(read).length));

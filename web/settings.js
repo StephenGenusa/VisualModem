@@ -1,8 +1,9 @@
 import { LEVEL_OPTIONS } from '../src/core/symbols.js';
 import { SCHEME_CHOICES } from '../src/core/scheme.js';
 import { MIN_COLS, MIN_ROWS } from '../src/picture/layout.js';
+import { WHITE_MIN, PARITY_MAX } from '../src/optimize/probes.js';
 
-export const SCREEN_DEFAULTS = { blockSize: 16, levels: 4, scheme: 'cube', parity: 32, fps: 2, white: 255, fountain: true };
+export const SCREEN_DEFAULTS = { blockSize: 23, levels: 2, scheme: 'cube', parity: 32, fps: 10, white: 255, fountain: true };
 export const PHONE_BLOCK_SIZE = 24;
 export const FILE_DEFAULTS = { width: 1920, height: 1080, blockSize: 1, levels: 256, parity: 0 };
 
@@ -25,12 +26,11 @@ const SCREEN_BLOCK_MIN = 4;
 const SCREEN_BLOCK_MAX = 512;
 const FILE_BLOCK_MIN = 1;
 const FILE_BLOCK_MAX = 4; // the file reader tries block sizes 1 to 4 only
-const PARITY_MAX = 128;
 const FPS_MIN = 0.5;
-const FPS_MAX = 10;
+const FPS_MAX = 30;
 const FPS_STEP = 0.5;
 const FILE_SIDE_MAX = 8192;
-export const WHITE_MIN = 64; // below this the levels crowd together on a camera
+export { WHITE_MIN };
 export const WHITE_MAX = 255;
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);

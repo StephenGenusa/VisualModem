@@ -35,7 +35,7 @@ const TYPES = {
 const args = process.argv.slice(2);
 const port = Number(args.includes('--port') ? args[args.indexOf('--port') + 1] : 8443);
 const capture = args.includes('--capture');
-const feedback = createFeedbackBuffer(); // receiver reports, polled by auto tune and the test runner
+const feedback = createFeedbackBuffer(); // receiver reports, polled by Refine, Timed runs and Choose settings
 const session = createSession(); // the test on screen and the camera size the phone should use
 
 function send(res, status, body, type = 'text/plain; charset=utf-8') {

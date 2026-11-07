@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSetupModel } from '../web/setupcheck.js';
+import { createRunStatus } from '../web/rxstatus.js';
 import { schemeLabel } from '../src/optimize/probes.js';
 
 const g4 = { kind: 'rgb', levels: [2, 4, 2] };
@@ -32,7 +33,7 @@ test('a recommendation names the setting to use on the transmitter', () => {
   assert.equal(s.seen, 1); assert.equal(s.probeCount, 32);
   assert.equal(s.rows.length, 1);
   assert.equal(s.rows[0].blockSize, 23);
-  assert.match(s.recommendation, /^Use block 23, Green 4, red and blue 2, 3 frames per second\. About [0-9.]+ KB\/s here\.$/);
+  assert.match(s.recommendation, /^Use block 23, Green 4, red and blue 2, parity 32, 3 frames per second\. About [0-9.]+ KB\/s here\.$/);
   assert.deepEqual(s.advice, []);
 });
 
@@ -50,10 +51,10 @@ test('aim advice comes from the latest corners', () => {
   assert.deepEqual(m.state(10).advice, ['Move closer']);
 });
 
-test('a new probe count starts a new scoring run', () => {
+test('a new run id starts a new scoring run with its own probe count', () => {
   const m = createSetupModel();
-  for (let i = 0; i < 10; i++) m.noteAttempt(attempt(i * 300, header(5), true));
-  m.noteAttempt(attempt(4000, { ...header(1), probeCount: 36 }, true));
+  for (let i = 0; i < 10; i++) m.noteAttempt(attempt(i * 300, { ...header(5), version: 4, streamLength: 1 }, true));
+  m.noteAttempt(attempt(4000, { ...header(1), version: 4, streamLength: 2, probeCount: 36 }, true));
   const s = m.state(4100);
   assert.equal(s.probeCount, 36);
   assert.equal(s.seen, 1);
@@ -92,20 +93,35 @@ test('the status line says where the run is', () => {
   assert.match(m.state(5000).statusLine, /^No probe frames seen for 5 s\. /);
 });
 
-test('the status line gives the recommendation once a loop is done', () => {
+test('the status line gives the recommendation once the probe frames go quiet', () => {
   const m = createSetupModel();
   for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 333, header(32), true));
   m.noteAttempt(attempt(10000, header(1), false)); // the loop wrapped
-  const s = m.state(10100);
-  assert.match(s.statusLine, /^Probe 1 of 32: .* Loop 2, 2 of 32 probes seen\. Loop 1 done\. Use block 23, Green 4, red and blue 2, [0-9.]+ frames per second\. About [0-9.]+ KB\/s here\.$/);
+  assert.doesNotMatch(m.state(10100).statusLine, /Use block/);
+  const s = m.state(20000);
+  assert.match(s.statusLine, /^No probe frames seen for 10 s\. Last: Probe 1 of 32: .* Loop 2, 2 of 32 probes seen\. Loop 1 done\. Use block 23, Green 4, red and blue 2, parity 32, [0-9.]+ frames per second\. About [0-9.]+ KB\/s here\.$/);
 });
 
-test('a one-line best setting for the run panel, only once a loop is done', () => {
+test('a one-line best setting for the run panel, once a run has read something', () => {
   const m = createSetupModel();
   for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 333, header(32), true));
-  assert.equal(m.state(9700).best, null);
+  assert.match(m.state(9700).best, /^Best: /);
   m.noteAttempt(attempt(10000, header(1), false)); // the loop wrapped
-  assert.match(m.state(10100).best, /^Best: block 23, Green 4, red and blue 2, [0-9.]+ fps$/);
+  assert.match(m.state(10100).best, /^Best: block 23, Green 4, red and blue 2, parity 32, [0-9.]+ fps$/);
+});
+
+test('a single complete pass gives a best setting and a recommendation, and the run word is not a warning', () => {
+  const m = createSetupModel();
+  for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 333, header(32), true)); // no wrap: one loop
+  const s = m.state(20000);
+  assert.match(s.best, /^Best: block 23/);
+  assert.match(s.recommendation, /^Use block 23/);
+  const r = createRunStatus();
+  r.noteAttempt({ atMs: 9900, stage: 'ok', header: header(30) });
+  r.noteRecommendation(s.best);
+  const w = r.state(20000);
+  assert.equal(w.kind, 'ok');
+  assert.match(w.word, /^Best: /);
 });
 
 test('camera profiles are kept per block size', () => {
@@ -188,7 +204,7 @@ test('the summary lists every seen probe with its packets and partial gain, sort
   const s = setupSummary(m.state(9000));
   assert.deepEqual(s.probes.map((p) => p.id), [2, 6, 9]);
   for (const p of s.probes) {
-    assert.deepEqual(Object.keys(p).sort(), ['attempts', 'blockSize', 'bytesPerSecond', 'fps', 'id', 'label', 'ok', 'packets', 'partialGain', 'wholeFrames']);
+    assert.deepEqual(Object.keys(p).sort(), ['attempts', 'blockSize', 'bytesPerSecond', 'fps', 'goodPerTornRead', 'id', 'label', 'ok', 'packets', 'parity', 'partialGain', 'tornReads', 'twoFrameReads', 'white', 'wholeFrames']);
     assert.equal(p.blockSize, 23);
   }
   assert.equal(s.probes[0].partialGain, null);
@@ -235,4 +251,208 @@ test('state stays cheap as probes accumulate', () => {
   assert.equal(p1.wholeFrames, 6);
   assert.equal(p1.partialGain, 1);
   assert.equal(p1.bytesPerSecond, 7190.400000000001);
+});
+
+test('the recommendation names parity', () => {
+  const cube = { kind: 'rgb', levels: [2, 2, 2] };
+  const m = createSetupModel();
+  for (let i = 0; i < 30; i++) {
+    const ids = Array.from({ length: 14 }, (_, k) => i * 14 + k);
+    m.noteAttempt(attempt(i * 333, { ...header(32, cube, 28), version: 4, parity: 16, probeFps: 15, txId: 3, symbolIds: ids, packetCount: 14 }, true, { cols: 137, rows: 77 }));
+  }
+  m.noteAttempt(attempt(10000, header(1, cube, 28), false)); // the loop wrapped
+  const s = m.state(10100);
+  assert.match(s.recommendation, /^Use block 28, Color cube, 2 levels, parity 16, 15 frames per second\. About [0-9.]+ KB\/s here\.$/);
+  assert.match(s.best, /^Best: block 28, Color cube, 2 levels, parity 16, 15 fps$/);
+  assert.equal(s.rows[0].parity, 16);
+  assert.equal(s.probes.find((p) => p.id === 32).parity, 16);
+});
+
+test('a probe scored at parity 16 uses that parity\'s packet bytes', () => {
+  const cube = { kind: 'rgb', levels: [2, 2, 2] };
+  const m = createSetupModel();
+  const n = 14;
+  // slider parity 32 on the first probe seen, probe 5 shows parity 16: the sizes come per probe
+  m.noteAttempt(attempt(0, { ...header(4, cube, 13), version: 4, parity: 32, probeFps: 4, txId: 1, symbolIds: [0], packetCount: n }, true, { cols: 137, rows: 77 }));
+  for (let i = 0; i < 12; i++) {
+    const ids = Array.from({ length: n }, (_, k) => i * n + k);
+    m.noteAttempt(attempt(i * 250, { ...header(5, cube, 13), version: 4, parity: 16, probeFps: 4, txId: 2, symbolIds: ids, packetCount: n }, true, { cols: 137, rows: 77 }));
+  }
+  const row = m.state(3000).rows.find((r) => r.id === 5);
+  assert.equal(row.parity, 16);
+  assert.equal(row.bytesPerSecond % (253 - 16 - 7), 0);
+  assert.equal(row.bytesPerSecond, (253 - 16 - 7) * Math.min(12 * n / 2.5, n * 4));
+});
+
+// ---- run ids and refine ----
+const v4header = (probeId, runId, extra = {}) => ({
+  version: 4, frameType: 2, probeId, probeCount: 15, scheme: g4, blockSize: 23, parity: 16, probeFps: 4,
+  txId: 9, streamLength: runId, sourceCount: 255, probeStatic: false, probeRefine: false, ...extra,
+});
+const feedRun = (m, runId, probeId, startMs, extra = {}) => {
+  for (let i = 0; i < 10; i++) {
+    m.noteAttempt(attempt(startMs + i * 300, v4header(probeId, runId, extra), true, {}));
+  }
+};
+const withIds = (h) => ({ ...h, packetCount: 14, symbolIds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] });
+
+test('a new run id starts a new tally', () => {
+  const m = createSetupModel();
+  feedRun(m, 111, 5, 0);
+  assert.equal(m.state(3500).seen, 1);
+  assert.ok(m.state(3500).rows.length > 0);
+  // another run with the same probe count: the table starts fresh
+  m.noteAttempt(attempt(4000, v4header(1, 222), true));
+  const s = m.state(4100);
+  assert.equal(s.seen, 1);
+  assert.equal(s.probeCount, 15);
+  assert.equal(s.probes[0].id, 1);
+  assert.equal(s.recommendation, null);
+});
+
+test('the same run id across loops keeps the tally', () => {
+  const m = createSetupModel();
+  feedRun(m, 111, 5, 0);
+  feedRun(m, 111, 1, 3000);
+  assert.equal(m.state(6500).seen, 2);
+  assert.equal(m.state(6500).probes.length, 2);
+});
+
+test('a characterization frame neither starts nor corrupts a run', () => {
+  const m = createSetupModel();
+  m.noteAttempt(attempt(0, charHeader(1), true));
+  assert.match(m.state(100).statusLine, /Measuring the camera at block 23/);
+  assert.equal(m.state(100).probeCount, 0);
+  feedRun(m, 111, 5, 500);
+  const before = m.state(4000);
+  m.noteAttempt(attempt(4100, { ...charHeader(6), probeCount: 15 }, true));
+  m.noteAttempt(attempt(4200, { ...charHeader(1), probeCount: 15 }, true));
+  const after = m.state(4300);
+  assert.equal(after.seen, before.seen);
+  assert.equal(after.probeCount, 15);
+  assert.deepEqual(after.probes.map((p) => p.attempts), before.probes.map((p) => p.attempts));
+  assert.doesNotMatch(after.statusLine, /Loop 2/);
+});
+
+test('a probe reports its white', () => {
+  const m = createSetupModel();
+  for (let i = 0; i < 20; i++) m.noteAttempt(attempt(i * 250, withIds({ ...v4header(3, 5, { sourceCount: 223 }), symbolIds: Array.from({ length: 14 }, (_, k) => i * 14 + k) }), true));
+  const s = m.state(5000);
+  assert.equal(s.probes[0].white, 223);
+  assert.equal(s.rows[0].white, 223);
+});
+
+test('Refine frames leave the Setup check alone: no sweep, no nonsense count', () => {
+  const refineFrame = (probeId, runId = 5) => withIds(v4header(probeId, runId, { probeCount: 0, probeRefine: true }));
+  const fresh = createSetupModel();
+  for (let i = 0; i < 20; i++) fresh.noteAttempt(attempt(i * 250, refineFrame(i + 1), true));
+  const s = fresh.state(5000);
+  assert.equal(s.visible, false);
+  assert.equal(s.probeCount, 0);
+  assert.equal(s.seen, 0);
+  assert.equal(s.statusLine, null);
+  assert.ok(s.attemptRate > 0, 'the camera reads still count');
+  assert.ok(s.advice !== undefined);
+
+  const m = createSetupModel();
+  feedRun(m, 111, 5, 0);
+  const before = m.state(3500);
+  for (let i = 0; i < 20; i++) m.noteAttempt(attempt(3500 + i * 100, refineFrame(i + 1, 999), true));
+  const after = m.state(5500);
+  assert.equal(after.seen, before.seen);
+  assert.equal(after.probeCount, 15);
+  assert.deepEqual(after.probes.map((p) => [p.id, p.attempts]), before.probes.map((p) => [p.id, p.attempts]));
+});
+
+test('the recommendation names white only when it is not 255', () => {
+  const rec = (white) => {
+    const m = createSetupModel();
+    for (let i = 0; i < 20; i++) m.noteAttempt(attempt(i * 250, withIds({ ...v4header(3, 5, { sourceCount: white }), symbolIds: Array.from({ length: 14 }, (_, k) => i * 14 + k) }), true));
+    return m.state(5000).recommendation;
+  };
+  assert.match(rec(255), /^Use block 23, Green 4, red and blue 2, parity 16, 4 frames per second\. About [0-9.]+ KB\/s here\.$/);
+  assert.match(rec(223), /^Use block 23, Green 4, red and blue 2, parity 16, 4 frames per second, white 223\. About [0-9.]+ KB\/s here\.$/);
+});
+
+test('a late frame from an old run is ignored and never restarts the tally', () => {
+  const m = createSetupModel();
+  feedRun(m, 111, 5, 0);
+  feedRun(m, 222, 2, 4000);
+  feedRun(m, 222, 3, 7000);
+  const before = m.state(10100).probes.map((p) => [p.id, p.attempts]);
+  m.noteAttempt(attempt(10200, v4header(5, 111), true));
+  m.noteAttempt(attempt(10300, v4header(1, 111), true));
+  const s = m.state(10400);
+  assert.deepEqual(s.probes.map((p) => [p.id, p.attempts]), before);
+  assert.equal(s.seen, 2);
+  m.noteAttempt(attempt(10500, v4header(2, 222), true));
+  assert.equal(m.state(10600).probes.find((p) => p.id === 2).attempts, 11);
+});
+
+test('a characterization frame of another probe count hides the old view until the new run starts', () => {
+  const m = createSetupModel();
+  for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 250, withIds({ ...v4header(5, 111), symbolIds: Array.from({ length: 14 }, (_, k) => i * 14 + k) }), true));
+  feedRun(m, 111, 1, 8000); // a second loop so "Loop 1 done" would show
+  assert.ok(m.state(11000).recommendation);
+  m.noteAttempt(attempt(11100, { ...charHeader(1), probeCount: 21 }, true));
+  const s = m.state(11200);
+  assert.equal(s.recommendation, null);
+  assert.equal(s.rows.length, 0);
+  assert.equal(s.probes.length, 0);
+  assert.equal(s.best, null);
+  assert.doesNotMatch(s.statusLine, /Loop 1 done|Use block|Best/);
+  assert.match(s.statusLine, /Measuring the camera at block 23/);
+  m.noteAttempt(attempt(15000, v4header(1, 333, { probeCount: 21 }), true));
+  const t = m.state(15100);
+  assert.equal(t.probeCount, 21);
+  assert.equal(t.seen, 1);
+  assert.doesNotMatch(t.statusLine, /Loop 1 done/);
+});
+
+test('a characterization frame with the same probe count keeps the view', () => {
+  const m = createSetupModel();
+  for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 250, withIds({ ...v4header(5, 111), symbolIds: Array.from({ length: 14 }, (_, k) => i * 14 + k) }), true));
+  const before = m.state(8000).recommendation;
+  assert.ok(before);
+  m.noteAttempt(attempt(8100, { ...charHeader(1, 23), probeCount: 15 }, true));
+  m.noteAttempt(attempt(8200, { ...charHeader(2), probeCount: 15 }, true));
+  assert.equal(m.state(8300).recommendation, before);
+});
+
+test("a run's own probe frames bring back the view after a stray characterization frame", () => {
+  const m = createSetupModel();
+  const ids = (i) => Array.from({ length: 14 }, (_, k) => i * 14 + k);
+  for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 250, withIds({ ...v4header(5, 222), symbolIds: ids(i) }), true));
+  m.noteAttempt(attempt(8000, { ...charHeader(1), probeCount: 40 }, true));
+  assert.equal(m.state(8100).recommendation, null);
+  for (let i = 30; i < 40; i++) m.noteAttempt(attempt(8200 + i * 250, withIds({ ...v4header(5, 222), symbolIds: ids(i) }), true));
+  const s = m.state(18500);
+  assert.ok(s.recommendation);
+  assert.ok(s.rows.length > 0);
+  assert.equal(s.probes[0].attempts, 40);
+  assert.equal(s.probeCount, 15);
+});
+
+test('the summary carries the recommended setting as fields as well as text', async () => {
+  const { setupSummary } = await import('../web/setupcheck.js');
+  const m = createSetupModel();
+  for (let i = 0; i < 30; i++) m.noteAttempt(attempt(i * 333, header(5), true));
+  const state = m.state(10000);
+  const s = setupSummary(state);
+  assert.match(s.recommendation, /^Use block 23, Green 4, red and blue 2, parity 32,/);
+  assert.equal(s.best.blockSize, 23);
+  assert.equal(s.best.scheme, 'g4');
+  assert.equal(s.best.levels, 2);
+  assert.equal(s.best.parity, 32);
+  assert.equal(s.best.white, 255);
+  assert.equal(s.best.fps, state.bestSetting.fps);
+  assert.equal(s.best.bytesPerSecond, Math.round(state.bestSetting.bytesPerSecond));
+  assert.deepEqual(Object.keys(s.best).sort(), ['blockSize', 'bytesPerSecond', 'fps', 'levels', 'parity', 'scheme', 'white']);
+  const cube = createSetupModel();
+  for (let i = 0; i < 30; i++) cube.noteAttempt(attempt(i * 333, header(5, { kind: 'rgb', levels: [4, 4, 4] }), true));
+  assert.deepEqual([setupSummary(cube.state(10000)).best.scheme, setupSummary(cube.state(10000)).best.levels], ['cube', 4]);
+  const odd = createSetupModel();
+  for (let i = 0; i < 30; i++) odd.noteAttempt(attempt(i * 333, header(5, { kind: 'rgb', levels: [8, 2, 4] }), true));
+  assert.equal(setupSummary(odd.state(10000)).best, null);
+  assert.ok(setupSummary(odd.state(10000)).recommendation);
 });

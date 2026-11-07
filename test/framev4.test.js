@@ -4,7 +4,7 @@ import {
   VERSION_4, HEADER_BYTES_V4, HEADER_CODEWORD_V4, PACKET_OVERHEAD, frameShapeV4, buildFrameV4,
   peekHeaderV4, parseFrameV4, frameToBlocksV4, blocksToFrameBytesV4,
 } from '../src/core/framev4.js';
-import { buildFrame, peekHeader, headerBytesFromBlocks, HEADER_CELLS } from '../src/core/frame.js';
+import { buildFrame, peekHeader, headerBytesFromBlocks, HEADER_CELLS, PROBE_FLAGS } from '../src/core/frame.js';
 import { rsEncode } from '../src/core/rs.js';
 import { crc16 } from '../src/core/crc16.js';
 import { computeLayoutV4 } from '../src/picture/layout.js';
@@ -261,4 +261,17 @@ test('no grid, scheme or parity yields a codeword over 255 bytes or an empty pac
       if (s.packets > 0) assert.ok(s.packetBytes >= 1, `${c}x${r} parity ${p}: packetBytes ${s.packetBytes}`);
     }
   }
+});
+
+test('a 30 fps probe header reads back as 30; 7.5 and 25.5 round trip through the x 10 form', () => {
+  const packets = makePackets(shape.packets);
+  const read = (probeFps, probeFlags) => peekHeaderV4(buildFrameV4({ ...base, frameType: 2, probeId: 1, probeCount: 2, probeFps, probeFlags, packets }, shape).subarray(0, HEADER_CODEWORD_V4));
+  const fast = read(30, PROBE_FLAGS.wholeFps);
+  assert.equal(fast.probeFps, 30);
+  assert.equal(fast.probeStatic, false);
+  assert.equal(read(7.5, 0).probeFps, 7.5);
+  assert.equal(read(25.5, 0).probeFps, 25.5);
+  const staticFast = read(30, PROBE_FLAGS.wholeFps | PROBE_FLAGS.static);
+  assert.equal(staticFast.probeFps, 30);
+  assert.equal(staticFast.probeStatic, true);
 });

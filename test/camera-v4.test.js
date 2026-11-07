@@ -117,3 +117,29 @@ test('a frame with no header is read again on the fallback geometry when there i
   assert.equal(out.frame, null);
   assert.equal(out.read.rereads, 1);
 });
+
+test('a hard tear gives packets from both frames', () => {
+  const scheme = schemeFromLevels(2);
+  const layout = computeLayoutV4(COLS, ROWS);
+  const shape = frameShapeV4(layout, scheme, 32);
+  const n = shape.packets;
+  const frameAt = (index) => {
+    const next = seeded(0x5eed + index);
+    const packets = Array.from({ length: n }, (_, k) => ({
+      symbolId: index * n + k,
+      data: Uint8Array.from({ length: shape.packetBytes }, next),
+    }));
+    const frameBytes = buildFrameV4({
+      blockSize: BLOCK_PX, scheme, parity: 32, txId: 0x1234abcd, sourceCount: 100, streamLength: 20000, packets,
+    }, shape);
+    return warp(renderFrame({ frameBytes, index, scheme, blockSize: BLOCK_PX, layout, version: 4 }));
+  };
+  const top = frameAt(0);
+  const bottom = frameAt(1);
+  const from = Math.floor(H / 2) * W * 4;
+  top.data.set(bottom.data.subarray(from), from);
+  const out = decodeCameraFrame(degrade(top));
+  assert.ok(out.frame, out.read.reason);
+  const frames = new Set(out.frame.packets.filter(Boolean).map((p) => Math.floor(p.symbolId / n)));
+  assert.deepEqual([...frames].sort(), [0, 1]);
+});

@@ -186,20 +186,20 @@ test('a v4 attempt with no good packet is a miss; the count comes from the heade
   assert.equal(r.wholeFrames, 1);
 });
 
-test('a v4 recommendation is capped at the recommended frame rate', () => {
-  const probe = [{ id: 1, fps: 10 }];
-  const s = createScorer(probe, { bytesPerFrame: () => 0, packetBytes: () => 100, packetCount: () => 4 });
-  // 8 attempts a second apart: a read rate that recommends 6 fps; all 40 packets of 10 frames at 10 fps
+test('a v4 probe is recommended at its own rate', () => {
+  const probe = [{ id: 1, fps: 15 }];
+  const s = createScorer(probe, { bytesPerFrame: () => 0, packetBytes: () => 100, packetCount: () => 14 });
+  // 8 attempts about 83 ms apart (12 reads a second), each reading 14 new packets of 15 fps frames
   for (let i = 0; i < 8; i++) {
     const ids = [];
-    for (let k = 0; k < 20; k++) ids.push(i * 20 + k);
-    s.addAttempt({ atMs: 100_000 + i * 160, header: { version: 4, probeId: 1, txId: 3, symbolIds: ids, probeFps: 10 }, ok: true, estCols: null, colsOf: () => 0 });
+    for (let k = 0; k < 14; k++) ids.push(i * 14 + k);
+    s.addAttempt({ atMs: 100_000 + i * 83, header: { version: 4, probeId: 1, txId: 3, symbolIds: ids, probeFps: 15 }, ok: true, estCols: null, colsOf: () => 0 });
   }
-  const r = s.results(6)[0];
-  const rec = s.recommend(6);
-  assert.ok(rec.fps < 10);
-  assert.ok(r.newPacketsPerSecond > 4 * rec.fps);
-  assert.equal(rec.bytesPerSecond, 100 * 4 * rec.fps);
+  const r = s.results(12)[0];
+  const rec = s.recommend(12);
+  assert.equal(rec.fps, 15);
+  assert.equal(rec.bytesPerSecond, r.bytesPerSecond);
+  assert.ok(rec.bytesPerSecond > 0);
 });
 
 test('v4 scoring stays constant time over many loops, with the same numbers', () => {
@@ -223,4 +223,76 @@ test('v4 scoring stays constant time over many loops, with the same numbers', ()
   for (let i = 0; i < 50; i++) s.results(3);
   const ms = Number(process.hrtime.bigint() - start) / 1e6 / 50;
   assert.ok(ms < 1, `results() averaged ${ms} ms`);
+});
+
+test('torn and two-frame reads are counted per probe', () => {
+  const s = v4(); // 14 packets a frame
+  v4add(s, 0, Array.from({ length: 14 }, (_, k) => k)); // a whole read of frame 0
+  v4add(s, 1, [14, 15, 16, 17]); // torn, one frame
+  v4add(s, 2, [5, 6, 14 + 9, 14 + 10, 14 + 11, 14 + 12]); // torn, two frames
+  v4add(s, 3, []); // no good packet: not torn
+  const r = s.results(3)[0];
+  assert.equal(r.tornReads, 2);
+  assert.equal(r.twoFrameReads, 1);
+  assert.equal(r.goodPerTornRead, 5);
+});
+
+test('a probe with no packet count, or no v4 reads, has zero counts and no mean', () => {
+  const none = createScorer(v4probes, { bytesPerFrame: () => 0, packetBytes: () => 214, packetCount: () => 0 });
+  v4add(none, 0, [1, 2, 3]);
+  const r = none.results(3)[0];
+  assert.equal(r.tornReads, 0);
+  assert.equal(r.twoFrameReads, 0);
+  assert.equal(r.goodPerTornRead, null);
+  const v3 = v4();
+  v3.addAttempt({ atMs: 1, header: { version: 3, probeId: 1, txId: 1 }, ok: true, estCols: null, colsOf: () => 0 });
+  assert.equal(v3.results(3)[0].tornReads, undefined);
+});
+
+test('each read is judged against its own probe\'s packet count', () => {
+  const two = [{ id: 1, fps: 4 }, { id: 2, fps: 4 }];
+  const s = createScorer(two, { bytesPerFrame: () => 0, packetBytes: () => 1, packetCount: (p) => (p.id === 1 ? 4 : 8) });
+  const add = (probeId, ids) => s.addAttempt({ atMs: 1000, header: { version: 4, probeId, txId: 1, symbolIds: ids }, ok: true, estCols: null, colsOf: () => 0 });
+  add(1, [3, 4]); // frames 0 and 1 with n = 4
+  add(2, [3, 4]); // frame 0 only with n = 8
+  const [a, b] = s.results(3);
+  assert.equal(a.twoFrameReads, 1);
+  assert.equal(b.twoFrameReads, 0);
+  assert.equal(b.tornReads, 1);
+});
+
+test('a v4 probe with more measured bytes is recommended even with a lower read rate', () => {
+  const probes4 = [{ id: 1, fps: 15 }, { id: 2, fps: 15 }];
+  const s = createScorer(probes4, { bytesPerFrame: () => 0, packetBytes: () => 100, packetCount: () => 14 });
+  // probe 1: 10 reads, 6 good with 14 new packets each, 4 with no good packet
+  let n = 0;
+  for (let i = 0; i < 10; i++) {
+    const ids = [];
+    if (i % 5 < 3) for (let k = 0; k < 14; k++) ids.push(n++);
+    s.addAttempt({ atMs: 100_000 + i * 100, header: { version: 4, probeId: 1, txId: 3, symbolIds: ids, probeFps: 15 }, ok: ids.length > 0, estCols: null, colsOf: () => 0 });
+  }
+  // probe 2: 10 reads, all good, 8 new packets each
+  for (let i = 0; i < 10; i++) {
+    const ids = [];
+    for (let k = 0; k < 8; k++) ids.push(i * 8 + k);
+    s.addAttempt({ atMs: 200_000 + i * 100, header: { version: 4, probeId: 2, txId: 4, symbolIds: ids, probeFps: 15 }, ok: true, estCols: null, colsOf: () => 0 });
+  }
+  const [r1, r2] = s.results(10);
+  assert.ok(r1.readRate < r2.readRate && r1.readRate >= 0.5, `read rates ${r1.readRate} ${r2.readRate}`);
+  assert.ok(r1.bytesPerSecond > r2.bytesPerSecond);
+  const rec = s.recommend(10);
+  assert.equal(rec.probe.id, 1);
+  assert.equal(rec.bytesPerSecond, r1.bytesPerSecond);
+});
+
+test('a probe reports the white its header names and is scored over the probe hold', () => {
+  const ids = (from) => Array.from({ length: 14 }, (_, k) => from + k);
+  const run = (extra) => {
+    const s = createScorer([{ id: 1, fps: 4 }], { bytesPerFrame: () => 0, packetBytes: () => 100, packetCount: () => 14 });
+    for (let i = 0; i < 10; i++) s.addAttempt({ atMs: 100_000 + i * 250, header: { version: 4, probeId: 1, txId: 7, symbolIds: ids(i * 14), probeFps: 4, ...extra }, ok: true, estCols: null, colsOf: () => 0 });
+    return s.results(3)[0];
+  };
+  const plain = run({}), dim = run({ sourceCount: 223 });
+  assert.equal(plain.white, 255); assert.equal(dim.white, 223);
+  assert.equal(plain.bytesPerSecond, 100 * Math.min(140 / 2.5, 14 * 4));
 });

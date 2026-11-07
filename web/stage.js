@@ -1,6 +1,6 @@
 // The full screen stage: a canvas that shows a transmission's frames in a loop.
-// Start uses it for a payload, and auto tune for one trial after another
-// without leaving full screen. Escape, a click or a tap, or leaving full
+// Start uses it for a payload, and Refine and Timed runs for one transfer or
+// test after another without leaving full screen. Escape, a click or a tap, or leaving full
 // screen closes it. iOS Safari has no element full screen, so there the
 // canvas fills the page instead.
 //
@@ -11,6 +11,9 @@
 import { renderFrame } from '../src/picture/render.js';
 import { estimateRefreshHz, refreshesPerFrame, actualFps, checkCells } from '../src/picture/cadence.js';
 
+// The browser shows its "press Escape to exit full screen" message over the
+// page at first, so frames wait this long behind a black screen.
+const FULLSCREEN_NOTICE_MS = 3000;
 const MEASURE_REFRESHES = 30; // refreshes timed after openStage for the refresh rate
 const CHECK_CELLS = 64;
 const CHECK_SEED = 0x5eed;
@@ -24,8 +27,10 @@ let noteText = ''; // the caller's note
 let fpsNote = ''; // the running loop's actual frame rate, when it has more than one frame
 let fallbackMode = false;
 let open = false;
+let openCount = 0; // tells a wait whether its own opening is still the current one
 let refused = false; // the last openStage failed because the browser refused full screen
 const closedCallbacks = [];
+const openedCallbacks = [];
 let frameRect = null; // where the last frame was drawn, so a note goes in the margin
 let noteCtx = null;
 // The pixel self-check verdict per layout (block size, grid and stage size),
@@ -77,6 +82,8 @@ export async function openStage(pixels) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   canvas.hidden = false;
   open = true;
+  for (const callback of openedCallbacks) callback();
+  const thisOpen = ++openCount;
   refused = false;
   if (refreshHz === null && measureRaf === null) measureRefresh();
 
@@ -89,8 +96,21 @@ export async function openStage(pixels) {
       return null;
     }
     if (document.fullscreenElement !== canvas) return null; // left full screen while it was opening
+    drawWaiting(ctx, canvas);
+    await new Promise((done) => setTimeout(done, FULLSCREEN_NOTICE_MS));
+    if (!open || thisOpen !== openCount) return null; // closed, or reopened, during the wait
   }
   return ctx;
+}
+
+function drawWaiting(ctx, canvas) {
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.round(canvas.height / 30)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Starting in 3 seconds', canvas.width / 2, canvas.height / 2);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
 }
 
 // Times the first refreshes after openStage, for stageRefreshHz.
@@ -156,6 +176,26 @@ function drawNote() {
   noteCtx.font = `${size}px sans-serif`;
   noteCtx.textBaseline = 'middle';
   noteCtx.fillText(text, 8, top + height / 2, stage.width - 16);
+}
+
+/**
+ * Stops the loop on its last frame and writes a large message across the middle,
+ * readable from a distance, for when nothing on screen is being measured. The
+ * next showLoop or showImage paints over it.
+ */
+export function setStageBanner(ctx, text) {
+  stopLoop();
+  const height = Math.round(stage.height / 5);
+  const top = Math.round((stage.height - height) / 2);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, top, stage.width, height);
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.round(height / 3)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, stage.width / 2, stage.height / 2, stage.width - 32);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
 }
 
 function stopLoop() {
@@ -287,6 +327,26 @@ export function showImage(ctx, img) {
   noteCtx = ctx;
 }
 
+/**
+ * Stops any loop and blacks out the stage without leaving full screen, with
+ * one small grey line of text in the middle, or none with ''.
+ */
+export function showBlack(ctx, text = '') {
+  stopLoop();
+  noteText = '';
+  frameRect = null;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, stage.width, stage.height);
+  if (!text) return;
+  ctx.fillStyle = '#999';
+  ctx.font = `${Math.max(16, Math.round(stage.height / 40))}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, stage.width / 2, stage.height / 2, stage.width - 32);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+}
+
 export function closeStage() {
   stopLoop();
   if (measureRaf !== null) cancelAnimationFrame(measureRaf);
@@ -309,4 +369,9 @@ export const stageRefused = () => refused;
 /** Calls callback each time the stage closes, by any route. */
 export function onStageClosed(callback) {
   closedCallbacks.push(callback);
+}
+
+/** Calls callback each time the stage opens. */
+export function onStageOpened(callback) {
+  openedCallbacks.push(callback);
 }

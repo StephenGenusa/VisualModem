@@ -78,7 +78,7 @@ test('br candidates reach past the nearest guess and are ordered by distance', (
 });
 test('a marker whose black center reflects the room is still found', () => {
   // Measured on a phone photo of a TV: the bottom left marker's center read
-  // 125 from a reflected lamp, its white ring 254 and the dark bezel beside it 35.
+  // 125 from a reflection, its white ring 254 and the dark bezel beside it 35.
   const f = renderFrame({ frameBytes: new Uint8Array(500).map((_, i) => i * 7), index: 0, levels: 2, blockSize: 9, layout });
   const pad = 60, W = f.width + 2 * pad, H = f.height + 2 * pad;
   const data = new Uint8ClampedArray(W * H * 4);

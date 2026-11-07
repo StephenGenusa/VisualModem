@@ -48,6 +48,11 @@
 
       <fieldset>
         <legend>Screen settings</legend>
+        <label for="settings-choice">Choose settings</label>
+        <select id="settings-choice" aria-describedby="settings-choice-help"></select>
+        <div class="actions"><button id="settings-apply" type="button" class="secondary" disabled aria-describedby="settings-choice-help">Apply</button></div>
+        <p class="help" id="settings-choice-help">Pick a line, then press Apply: it sets block size, color scheme, levels, parity, frame rate and white together, and leaves Fountain coding as it is. Picking a line, or moving through the lines with the arrow keys, sets nothing. The first line, Current, is what is set now. Then come Refine's last result on this screen, Probe's best from the phone (with the capture server, only a best that is new since this page loaded), settings timed with Timed runs and their mean time, earlier Refine winners (up to 8, the best at each block size kept first), and Safe default. Off while the screen shows frames or Refine runs.</p>
+
         <label for="block-size">Block size <output id="block-size-value"></output> px, cap <output id="block-size-cap"></output></label>
         <input id="block-size" type="range" min="4" step="1" aria-describedby="block-size-help">
         <p class="help" id="block-size-help">Larger blocks read from farther away but carry less per frame.</p>
@@ -56,9 +61,11 @@
             <p><b>Pros of larger:</b> the phone reads from farther away. <b>Cons:</b> fewer blocks fit on the screen, so each frame carries less.</p>
             <p>The cap is the largest block that still fits a grid of 33 by 20 blocks on this screen.</p>
             <ul>
-              <li>Best measured on the test setup (a 4K TV and a phone camera at 1080p): block 28 with the color cube at 2 levels and 10 frames a second, about 26 KB/s.</li>
-              <li>Block 19 failed even on a still frame. At block 16 and below, reads are slow.</li>
-              <li>Aim matters as much as size: center the TV in the camera view and fill about 85 to 90% of its width. Off-center or small aims failed below block 35.</li>
+              <li>The default, block 23 with the color cube at 2 levels, parity 32 and 10 frames a second, took 6.2 s on average to send a 200 KB file (about 33 KB/s), from 5.2 to 7.2 s over 8 runs, on the test setup: a 4K TV and a phone camera at 1080p, square on, the TV filling about 65% of the camera's width, sent by light only. Earlier runs at block 28, parity 32 and 10 frames a second took 8.3 to 8.9 s.</li>
+              <li>In Timed runs at about 62% of the camera's width, alternating 10 runs each, the default took 5.3 s in one session and 6.3 s in another, against 7.2 s and 11.4 s at block 28, parity 32 and 15 frames a second. With strong glare on the screen neither completed.</li>
+              <li>Off square, block 23 has not been measured. At block 28, 15 frames a second fell off when angled.</li>
+              <li>Block 19 gave up to about 15 KB/s from partly read frames with the TV at about 70% of the camera's width, and up to about 19 KB/s when closer. Block 16 read nothing at 65 to 70%; with the TV at 83 to 93% of the camera's width it gave about 29 KB/s at 4 frames a second. The default, block 23, works at 65%.</li>
+              <li>Aim matters as much as size: center the TV in the camera view and keep the phone square to it. The best run had the TV at about 70% of the camera's width, and smaller blocks need it closer.</li>
               <li>Not sure? Run Probe and use the block size the phone recommends.</li>
             </ul>
           </div>
@@ -72,7 +79,7 @@
             <p>Bits per block: black and white 1, 4 shades of gray 2, green 4 with red and blue 2 gives 4, and the color cube 3 at 2 levels, 6 at 4 levels.</p>
             <ul>
               <li><b>Black and white</b> is the safest at small blocks.</li>
-              <li><b>Color cube</b> at 2 levels carries more but needs a good aim. It gave the best measured rate, at block 28.</li>
+              <li><b>Color cube</b> at 2 levels carries more but needs a good aim. It gave the best measured rates, at blocks 23 and 28.</li>
               <li><b>Green 4, red and blue 2</b> failed at every block size.</li>
               <li><b>4 shades of gray</b> failed from block 23 down.</li>
             </ul>
@@ -93,7 +100,7 @@
           <div class="more-body">
             <p><b>Pros of more levels:</b> each doubling adds 3 bits per block. <b>Cons:</b> the colors sit closer together, so the camera confuses them sooner.</p>
             <ul>
-              <li>2 levels with block 28 was the best measured on the test setup (a 4K TV and a phone camera at 1080p).</li>
+              <li>The default, 2 levels at block 23, took 6.2 s on average to send a 200 KB file at 10 frames a second on the test setup (8 runs).</li>
               <li>256 levels is for saved PNG files only. A camera cannot read it.</li>
               <li>The other schemes have fixed colors, so this select is off for them.</li>
             </ul>
@@ -118,24 +125,25 @@
         <p class="help" id="parity-help">Repair bytes in each 255 byte codeword. More repairs more damage but leaves less room for data.</p>
         <details class="more"><summary>More</summary>
           <div class="more-body">
-            <p>Data goes out in codewords of 255 bytes. With parity p, each codeword spends p bytes on repair and can fix up to p / 2 wrong bytes in it. At 32 it fixes up to 16 bad bytes per codeword and spends 32 of each 255 bytes, about 13% of the space.</p>
+            <p>Data goes out in codewords of 255 bytes. With parity p, each codeword spends p bytes on repair and can fix up to p / 2 wrong bytes in it. At 32, the default, it fixes up to 16 bad bytes per codeword and spends 32 of each 255 bytes, about 13% of the space.</p>
             <ul>
               <li>0 turns repair off: no wrong data byte can be fixed.</li>
-              <li>Stay with 32, the measured setting, unless there is a reason to change.</li>
+              <li>The default is 32. At block 23 and 15 frames a second on the test setup, a 200 KB file averaged 6.8 s at parity 32 (5.6 to 7.8 s over 6 runs) and 6.7 s at parity 16 (5.0 to 9.5 s over 12 runs), so 32 was steadier. Parity 8 averaged 9.5 s (2 runs). At block 28, parity 0 and 8 fell off badly when off square.</li>
               <li>With fountain coding, the frame's payload is split into equal codewords of at most 255 bytes, and each packet carries its codeword length minus parity minus 7 bytes of data: 214 bytes at block 28, cube 2, parity 32 on a 4K screen.</li>
             </ul>
           </div>
         </details>
 
         <label for="fps">Frames per second <output id="fps-value"></output></label>
-        <input id="fps" type="range" min="0.5" max="10" step="0.5" aria-describedby="fps-help">
-        <p class="help" id="fps-help">Faster sends more each second but tears more on the phone's rolling shutter.</p>
+        <input id="fps" type="range" min="0.5" max="30" step="0.5" aria-describedby="fps-help">
+        <p class="help" id="fps-help">Faster can send more each second, until tearing on the phone's rolling shutter costs more than it gains; on the test setup that point was above 10 frames a second. A frame stays up for a whole number of screen refreshes, so the rate shown can differ from the slider.</p>
         <details class="more"><summary>More</summary>
           <div class="more-body">
             <p><b>Pros of faster:</b> more frames, so more data, each second. <b>Cons:</b> the phone's camera reads the screen line by line, so a frame change mid-read tears the picture and that read can fail.</p>
             <ul>
-              <li>Fountain coding is what makes the higher rates pay: a torn frame is made up by any later frame instead of waiting a full loop.</li>
-              <li>10 frames a second with block 28 and the color cube at 2 levels was the best measured on the test setup (a 4K TV and a phone camera at 1080p), about 26 KB/s.</li>
+              <li>Faster can send more until tearing costs more than it gains. On the test setup that was above 10 frames a second. With fountain coding a torn frame is made up by any later frame instead of waiting a full loop.</li>
+              <li>Rates are whole screen refreshes: on a 60 Hz screen the rates above 10 are 12, 15, 20 and 30, and the label says what will really be shown. The phone reads about 15 a second at 65 to 70% framing, about 9 when the TV fills more of the view and the phone is slightly off square, so rates above that tear more; the probe measures which rate is best.</li>
+              <li>On the test setup (a 4K TV and a phone camera at 1080p, square on, fountain coding on, block 23, cube 2, parity 32), a 200 KB file averaged 6.2 s at 10 frames a second (8 runs), 6.5 s at 12 (7 runs), 6.8 s at 15 (6 runs), 7.7 s at 20 (4 runs) and 15.1 s at 30 (1 run). Failed reads jumped above 12 frames a second.</li>
             </ul>
           </div>
         </details>
@@ -213,19 +221,20 @@
           <button id="probe" type="button" class="secondary" aria-describedby="probe-help">Probe</button>
           <label for="probe-loops" class="inline-label">Loops</label>
           <select id="probe-loops" aria-describedby="probe-loops-help">
-            <option value="1">1</option>
-            <option value="2" selected>2</option>
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
             <option value="3">3</option>
             <option value="0">Until Escape</option>
           </select>
         </div>
-        <p class="help" id="probe-help">Shows test patterns at each block size, then a frame rate sweep. Bounded by Loops.</p>
+        <p class="help" id="probe-help">Shows test patterns at each block size, then a frame rate sweep and a parity sweep. One loop takes about 230 seconds on a 4K screen. Bounded by Loops.</p>
         <p class="help" id="probe-loops-help">How many times Probe runs through every pattern. Until Escape keeps going until you press Escape.</p>
+        <p class="help">With no network, read Probe's line on the phone and set it by hand, or pick "Safe default" in Choose settings.</p>
         <details class="more"><summary>More</summary>
           <div class="more-body">
-            <p>Open the Receive page on the phone and aim it first. For each block size from 45 down to 9 (as many as fit this screen), Probe shows a frame that measures the camera, then each color scheme. Then it tries the color cube at 2 levels at several frame rates. The patterns are known, so the phone counts errors against them and shows its recommendation at the end. No network needed.</p>
+            <p>Open the Receive page on the phone and aim it first. For each block size from 45 down to 9 (as many as fit this screen), Probe shows a frame that measures the camera, then each color scheme. Then it tries the color cube at 2 levels at several frame rates, and block 28 with several amounts of parity, to find how much error correction gives the most bytes a second. The patterns are known, so the phone counts errors against them and shows its recommendation at the end. No network needed.</p>
             <ul>
-              <li>It uses the parity and white level set above.</li>
+              <li>It uses the white level set above, and the parity set above for every pattern except the parity sweep.</li>
               <li>More loops give the phone more reads to judge by, but take longer.</li>
               <li>Press Escape, or click or tap the screen, to stop early. The phone still recommends from what it saw.</li>
             </ul>
@@ -234,25 +243,81 @@
         <p id="probe-status" class="probe-status" aria-live="polite"></p>
       </section>
 
-      <details class="grp g-dev" id="grp-dev" hidden>
-        <summary class="grp-h"><span class="num"><b>3</b></span>Development and testing<span class="tag">Capture server</span></summary>
-        <p class="grp-desc">Measurement runs we do together. The phone reports results to the computer over the network; payload still goes by light.</p>
-        <div class="actions"><button id="tune" type="button" class="dev" hidden aria-describedby="tune-help">Auto tune</button></div>
-        <p class="help" id="tune-help">Tries settings one after another and sets block size and levels to the best.</p>
-        <div class="actions"><button id="run-tests" type="button" class="dev" hidden aria-describedby="run-tests-help">Run tests</button></div>
-        <p class="help" id="run-tests-help">Auto tune at each phone camera size, then times a file at several frame rates. Produces a report.</p>
+      <section class="grp g-probe" id="grp-refine" aria-labelledby="grp-refine-h" hidden>
+        <h2 class="grp-h" id="grp-refine-h"><span class="num">3</span>Refine the settings<span class="tag">Capture server</span></h2>
+        <p class="grp-desc">Works out the best settings by itself in the time you choose. The frames still go by light; only the phone's counts use the network.</p>
+        <div class="actions">
+          <button id="refine" type="button" class="secondary" aria-describedby="refine-help">Refine</button>
+          <label for="refine-limit" class="inline-label">Time limit</label>
+          <select id="refine-limit" aria-describedby="refine-limit-help">
+            <option value="1">1 minute</option>
+            <option value="3" selected>3 minutes</option>
+            <option value="5">5 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
+        </div>
+        <p class="help" id="refine-help">Tests one setting after another, the Send page settings first, then sets this page to the best it found. Leave it running: the phone counts what it reads.</p>
+        <p class="help" id="refine-limit-help">How long Refine may run. Each limit spreads its short tests across the whole range of settings: a few at 1 minute, about 15 at 3 minutes, a few hundred at 30. Longer limits also tune and repeat more.</p>
         <details class="more"><summary>More</summary>
           <div class="more-body">
-            <p>Both need the project server started with capture on, and the Receive page open on the phone.</p>
+            <p>Open the Receive page on the phone and aim it first, with one phone at a time. Refine waits up to 20 seconds for it. Each test shows one setting for 2 or 6 seconds, plus up to a second to change over. It starts from the Send page settings, earlier winners on this screen and, with the color cube at 2 levels, a built-in list of known good settings: 3 in all at 1 minute, 7 at 3 minutes, 11 at 5 minutes and 20 at 30 minutes, each with a full test, in at most a quarter of the time. Then it surveys block, parity and frame rate evenly with short tests, each time the setting farthest from those tried, keeping the color scheme. From the survey it takes up to 6 candidates, at least 2 steps apart, and tunes each one a step at a time, white included. The rest of the time repeats the best few in turn.</p>
             <ul>
-              <li><b>Auto tune</b> asks the phone for its 1080p camera, then shows color cube trial frames at 2 and 4 levels one after another. The phone reports each trial's results to the server. At the end it sets block size and levels, and the scheme to color cube, from the best result. Stopped early, it changes nothing.</li>
-              <li><b>Run tests</b> does this for the phone's 1080p camera and then its 4K camera: switches the camera, runs Auto tune, then times a file of several frames at a series of frame rates. The report table below lists, per camera, the size it delivered, the time per read, the levels found, the best setting and the bytes per second at each rate. It does not change your settings.</li>
-              <li>If a frame cannot hold the test data, the status says so; choose less parity and try again.</li>
+              <li>A short test only drops settings that read under half the best; it never picks the winner. A block whose short tests in a round mostly fail (all of its first 3, or at least three in four after that) is left out of the rest of that round's survey. A 30 minute run does all of this three times, 10 minutes each, testing the first setting again at the start of each round, so a change in the light shows. A run uses all its time unless nothing reads.</li>
+              <li>At the end this page is set to the winner, which needs 3 full readings. When settings that differ only in parity read within the noise of each other and at least 90% of the best, the one with the highest parity wins: it cost little without glare and held up far better with it. The status names these ties, and says when the first setting read differently later in the run. Then it also names the best setting before the change, the best after it, and the steadiest across both, marked rough because each rests on few readings. The winner is labelled provisional if it had too few readings, another setting read higher by more than the noise on fewer readings, or the run was cut short. A setting only a little higher on one or two readings shows in the table but does not make the winner provisional. The table lists each setting tested with its mean, range and readings, and the status names the previous settings so you can set them back by hand. Nothing was proven about settings the run did not reach.</li>
+              <li>If every setting reads nothing, or you press Escape, or click or tap the screen, the settings do not change.</li>
+              <li>If the phone is hidden, locked or its camera stops, that test does not count and Refine waits, saying why here and on the screen. After 30 seconds it stops with what it has. The phone stays awake during a run where its browser allows that.</li>
+              <li>If 3 tests in a row read nothing (a short test counts as a third), Refine tests its best setting again. If that fails too, the phone has lost its aim: those readings are set aside, and it keeps showing that setting until it reads. After 30 seconds it stops with what it has, labelled provisional. If too little time is left to test it again, those readings are set aside and the run ends the same way.</li>
+              <li>If the framing moves by more than 5% of the camera's width, earlier readings are set aside and the run carries on.</li>
+              <li>The phone's big status shows the run from across the room. Winners are kept in this browser for this screen size and tried first next time. Details go in the debug log.</li>
+              <li>The last run that set a winner is kept in this browser for this screen size, with the color scheme and levels it ran on, and offered in Choose settings with earlier winners. A run stopped with Escape, or whose winner is provisional, is not kept.</li>
+            </ul>
+            <p><b>In the field:</b></p>
+            <ul>
+              <li>One phone at a time.</li>
+              <li>Hold the phone steady; a stand is best.</li>
+              <li>Run Refine in the light the audience will have.</li>
+              <li>Run it for 3 or 5 minutes before a session, and for 30 minutes when the light will change.</li>
             </ul>
           </div>
         </details>
-        <p id="tune-status" class="readout" aria-live="polite"></p>
-        <div id="test-report" class="test-report"></div>
+        <p id="refine-status" class="probe-status" aria-live="polite"></p>
+        <div id="refine-table" class="setup-table"></div>
+      </section>
+
+      <details class="grp g-dev" id="grp-dev" hidden>
+        <summary class="grp-h"><span class="num"><b>4</b></span>Measure<span class="tag">Capture server</span></summary>
+        <p class="grp-desc">Measurement runs where the phone reports to the computer over the network. The payload still goes by light.</p>
+        <div class="actions">
+          <button id="timed" type="button" class="secondary" aria-describedby="timed-help">Timed runs</button>
+          <label for="timed-count" class="inline-label">Runs per setting</label>
+          <select id="timed-count" aria-describedby="timed-count-help">
+            <option value="3">3</option>
+            <option value="5" selected>5</option>
+            <option value="10">10</option>
+          </select>
+          <label for="timed-other" class="inline-label">Compare with</label>
+          <select id="timed-other" aria-describedby="timed-other-help">
+            <option value="none">Nothing</option>
+          </select>
+        </div>
+        <p class="help" id="timed-help">Sends the current message or file by light again and again, as Start does, and times each transfer on the phone from its first piece to the last. Keep the phone on the Receive page and aimed at the screen; while the series runs the phone keeps its screen on and shows which run is on. Each run takes as long as the phone needs to read the transfer, plus a black wait while the phone starts fresh; a run is cut off after 3 minutes. A message or file that fits in one frame cannot be timed: choose a larger file or a longer message. Each setting timed is kept in this browser for this screen size, with its mean time, and offered in Choose settings and Compare with. Only progress, the phone's reports and the run word go over the network.</p>
+        <p class="help" id="timed-count-help">How many runs of each setting: 3, 5 or 10.</p>
+        <p class="help" id="timed-other-help">Nothing times the Send page settings alone. A line from Choose settings is timed too: the runs alternate, the Send page settings first, and the report says whether the two differ beyond the noise and which is faster. The Send page settings do not change.</p>
+        <details class="more"><summary>More</summary>
+          <div class="more-body">
+            <ul>
+              <li>Before each run the screen goes black and the phone starts fresh, as its Reset button does. The request is sent again every 2 seconds until the phone reports that it holds nothing, and the run starts then; a phone that has not done so within 10 seconds fails that run.</li>
+              <li>A run that gets no new pieces for 30 seconds, or takes longer than 3 minutes, fails, and the series goes on. After 5 seconds with no new pieces the screen says so.</li>
+              <li>If the phone's reports stop, its Receive page goes to the background or its camera stops, the screen says why and the series waits. The phone's own clock does not stop, so a run during which this happened is not timed: it is listed with the reason and left out of the mean, the speed and the comparison. After 30 seconds away the series stops with the runs so far.</li>
+              <li>A run during which the phone, after its first piece, found no markers in 10 camera reads in a row has lost the screen, and is not timed either.</li>
+              <li>Escape, or a click or tap on the screen, stops the series; the runs finished stay in the report.</li>
+              <li>The report gives each setting's times, mean, range, speed (the transfer's bytes over the mean time) and the runs not timed, with why. With two settings it says whether they differ beyond the noise, by a two-sided 95% Student t test on the difference of the mean log times, which one is faster when they do, and how much more or less time B took than A (from the geometric means). It also goes in the debug log.</li>
+              <li>A setting whose frame cannot hold the data fails its runs with the reason; when that is the Send page settings, the series does not start.</li>
+            </ul>
+          </div>
+        </details>
+        <p id="timed-status" class="probe-status" aria-live="polite"></p>
+        <div id="timed-report" class="setup-table"></div>
       </details>
 
       <div class="qr">

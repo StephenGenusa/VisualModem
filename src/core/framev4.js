@@ -15,7 +15,7 @@
 //   0..1 magic, 2 version (4), 3 blockSize, 4..5 scheme, 6 parity,
 //   7 frameType (0 data, 1 characterization, 2 probe, 3 report),
 //   8..9 probeId, 10..11 probeCount, 12 probeFps x 10 (0 none),
-//   13 probe flags (bit 0 static), 14..17 txId, 18..19 sourceCount K,
+//   13 probe flags (bit 0 static, bit 1 wholeFps: byte 12 is whole fps, bit 2 refine; a probe's streamLength is its run id and sourceCount its white level), 14..17 txId, 18..19 sourceCount K,
 //   20..23 streamLength.
 //
 // Packet (L bytes): rsEncode of txTag (2, low 16 bits of txId), symbolId (3),
@@ -105,8 +105,16 @@ export function buildFrameV4(fields, shape) {
   header[7] = frameType;
   view.setUint16(8, probeId);
   view.setUint16(10, probeCount);
-  header[12] = Math.min(255, Math.max(0, Math.round(probeFps * 10)));
-  header[13] = probeFlags & 0xff;
+  // Tenths of a frame a second up to 25.5; above that, whole frames with the wholeFps flag.
+  let flags = probeFlags & 0xff;
+  if (probeFps * 10 > 255) {
+    header[12] = Math.min(255, Math.round(probeFps));
+    flags |= PROBE_FLAGS.wholeFps;
+  } else {
+    header[12] = Math.max(0, Math.round(probeFps * 10));
+    flags &= ~PROBE_FLAGS.wholeFps;
+  }
+  header[13] = flags;
   view.setUint32(14, txId >>> 0);
   view.setUint16(18, sourceCount);
   view.setUint32(20, streamLength >>> 0);
@@ -149,8 +157,9 @@ function decodeHeader(bytes) {
     frameType: h[7],
     probeId: view.getUint16(8),
     probeCount: view.getUint16(10),
-    probeFps: h[12] === 0 ? null : h[12] / 10,
+    probeFps: h[12] === 0 ? null : (h[13] & PROBE_FLAGS.wholeFps) ? h[12] : h[12] / 10,
     probeStatic: (h[13] & PROBE_FLAGS.static) !== 0,
+    probeRefine: (h[13] & PROBE_FLAGS.refine) !== 0,
     txId: view.getUint32(14),
     sourceCount: view.getUint16(18),
     streamLength: view.getUint32(20),

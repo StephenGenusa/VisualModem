@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunStatus, MISS_TEXT, formatClock, gridText } from '../web/rxstatus.js';
+import { createRunStatus, MISS_TEXT, formatClock, gridText, REFINE_STALE_MS } from '../web/rxstatus.js';
 
 test('no attempts: looking for markers, warn', () => {
   const s = createRunStatus().state(0);
@@ -121,7 +121,7 @@ const corners = (l, r) => ({ tl: [l, 100], tr: [r, 100], bl: [l, 980], br: [r, 9
 test('aim hint: a small TV says move closer, a filled view says good', () => {
   const a = createRunStatus();
   a.noteAttempt({ atMs: 0, stage: 'ok', gridCorners: corners(480, 1440), imageW: 1920, imageH: 1080 });
-  assert.match(a.state(0).hint, /Move closer: the TV fills 50% of the width \(aim for 85 to 90%\)/);
+  assert.match(a.state(0).hint, /Move closer: the TV fills 50% of the width \(the best run was at about 70%\)/);
   const b = createRunStatus();
   b.noteAttempt({ atMs: 0, stage: 'ok', gridCorners: corners(100, 1820), imageW: 1920, imageH: 1080 });
   assert.match(b.state(0).hint, /^Aim is good, the TV fills 90% of the width/);
@@ -131,4 +131,63 @@ test('an attempt without corners clears the aim hint', () => {
   r.noteAttempt({ atMs: 0, stage: 'ok', gridCorners: corners(100, 1820), imageW: 1920, imageH: 1080 });
   r.noteAttempt({ atMs: 100, stage: 'no markers' });
   assert.equal(r.state(100).hint, null);
+});
+
+test('aim hint: 70% framing is good, 60% says move closer', () => {
+  const at = (l, r) => { const s = createRunStatus(); s.noteAttempt({ atMs: 0, stage: 'ok', gridCorners: corners(l, r), imageW: 1920, imageH: 1080 }); return s.state(0).hint; };
+  assert.match(at(288, 1632), /^Aim is good, the TV fills 70% of the width/);
+  assert.match(at(384, 1536), /^Move closer: the TV fills 60% of the width/);
+});
+
+const refineFrame = (probeId) => ({ frameType: 2, probeId, probeCount: 0, probeRefine: true, streamLength: 9 });
+
+test('a Refine frame shows Refine progress on the big status, not a probe count', () => {
+  const r = createRunStatus();
+  r.noteAttempt({ atMs: 1000, stage: 'ok', header: refineFrame(12) });
+  const s = r.state(1000);
+  assert.equal(s.word, 'Refine test 12');
+  assert.equal(s.kind, 'work');
+  assert.equal(r.state(9000).word, 'Refine ended');
+  assert.equal(r.state(9000).kind, 'warn');
+});
+
+test('the computer\'s word for a running Refine outranks a stale transfer and the frames', () => {
+  const r = createRunStatus();
+  r.noteCollector({ atMs: 0, txId: 7, have: 949, count: 949, unit: 'pieces', complete: true, elapsedMs: 9669 });
+  r.noteRefine({ seq: 1, active: true, word: 'Refine 2:13 left', kind: 'work' }, 100);
+  assert.equal(r.state(100).word, 'Refine 2:13 left');
+  r.noteAttempt({ atMs: 200, stage: 'ok', header: refineFrame(1) });
+  assert.equal(r.state(200).word, 'Refine 2:13 left');
+  assert.equal(r.refineActive(200), true);
+});
+
+test('a Refine result stays on the big status until something newer happens', () => {
+  const r = createRunStatus();
+  r.noteAttempt({ atMs: 100, stage: 'ok', header: refineFrame(1) });
+  r.noteRefine({ seq: 2, active: false, word: 'Refine done: block 25', kind: 'ok' }, 200);
+  // A late read of the last test does not hide it.
+  r.noteAttempt({ atMs: 300, stage: 'ok', header: refineFrame(1) });
+  assert.equal(r.state(600000).word, 'Refine done: block 25');
+  assert.equal(r.state(600000).kind, 'ok');
+  assert.equal(r.refineActive(300), false);
+  r.noteAttempt({ atMs: 700000, stage: 'ok', header: { frameType: 2, probeId: 3, probeCount: 40 } });
+  assert.equal(r.state(700000).word, 'Probe 3 of 40');
+  const sent = createRunStatus();
+  sent.noteRefine({ seq: 2, active: false, word: 'Refine done: block 25', kind: 'ok' }, 200);
+  sent.noteCollector({ atMs: 500, txId: 8, have: 1, count: 64, unit: 'frames', complete: false, elapsedMs: 0 });
+  assert.equal(sent.state(500).word, 'Receiving');
+});
+
+test('a Refine word that stops being renewed lapses, and clearing removes it', () => {
+  const r = createRunStatus();
+  r.noteRefine({ seq: 1, active: true, word: 'Refine 2:13 left', kind: 'work' }, 0);
+  r.noteRefine({ seq: 1, active: true, word: 'Refine 2:13 left', kind: 'work' }, 50000);
+  assert.equal(r.refineActive(50000), true);
+  assert.equal(r.refineActive(REFINE_STALE_MS + 1), false, 'the same seq does not renew it');
+  assert.notEqual(r.state(REFINE_STALE_MS + 1).word, 'Refine 2:13 left');
+  r.noteRefine({ seq: 2, active: true, word: 'Refine 2:06 left', kind: 'work' }, REFINE_STALE_MS + 2);
+  assert.equal(r.refineActive(REFINE_STALE_MS + 2), true);
+  r.noteRefine(null, REFINE_STALE_MS + 3);
+  assert.equal(r.refineActive(REFINE_STALE_MS + 3), false);
+  assert.equal(r.state(REFINE_STALE_MS + 3).word, 'Looking for markers');
 });

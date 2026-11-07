@@ -23,9 +23,10 @@ test('non numbers fall back to the default', () => {
   assert.deepEqual(sanitizeSettings('screen', null), SCREEN_DEFAULTS);
   assert.deepEqual(sanitizeSettings('file', 'junk'), FILE_DEFAULTS);
 });
-test('fps is clamped to 0.5 .. 10 in 0.5 steps', () => {
+test('fps is clamped to 0.5 .. 30 in 0.5 steps', () => {
   assert.equal(sanitizeSettings('screen', { fps: 0.1 }).fps, 0.5);
-  assert.equal(sanitizeSettings('screen', { fps: 30 }).fps, 10);
+  assert.equal(sanitizeSettings('screen', { fps: 31 }).fps, 30);
+  assert.equal(sanitizeSettings('screen', { fps: 30 }).fps, 30);
   assert.equal(sanitizeSettings('screen', { fps: 2.7 }).fps, 2.5);
 });
 test('parity is an even integer from 0 to 128', () => {
@@ -65,4 +66,12 @@ test('fountain coding is on by default and is remembered', () => {
   assert.equal(sanitizeSettings('screen', { fountain: 'no' }).fountain, true);
   assert.equal(sanitizeSettings('screen', { fountain: 0 }).fountain, true);
   assert.equal(sanitizeSettings('file', { fountain: false }).fountain, undefined);
+});
+test('screen defaults are the measured best', () => {
+  assert.deepEqual(SCREEN_DEFAULTS, { blockSize: 23, levels: 2, scheme: 'cube', parity: 32, fps: 10, white: 255, fountain: true });
+  assert.equal(sanitizeSettings('screen', {}).blockSize, 23);
+});
+test('the default block size fits the smallest grid on a 1080p screen', () => {
+  assert.ok(Math.floor(1920 / 33) >= SCREEN_DEFAULTS.blockSize);
+  assert.ok(Math.floor(1080 / 20) >= SCREEN_DEFAULTS.blockSize);
 });

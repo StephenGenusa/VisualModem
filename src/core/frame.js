@@ -14,7 +14,7 @@
 //   6 parity, 7 frameType (0 data, 1 characterization, 2 probe, 3 report),
 //   8..11 txId, 12..13 index, 14..15 count, 16..19 payloadLength,
 //   20..21 probeId, 22..23 probeCount, 24 probeFps x 10 (0 none),
-//   25 probe flags (bit 0 static), 26..27 reserved (0),
+//   25 probe flags (bit 0 static, bit 2 refine), 26..27 reserved (0),
 //   28..31 CRC-32 over bytes 0..27 followed by the payload bytes.
 //
 // On screen, a version 3 header codeword is always drawn in the first
@@ -41,7 +41,9 @@ export const VERSION = 3;
 export const VERSION_2 = 2;
 export const HEADER_BYTES_V2 = 22;
 export const FRAME_TYPES = { data: 0, characterization: 1, probe: 2, report: 3 };
-export const PROBE_FLAGS = { static: 1 };
+// refine: a frame of a Refine test, which no Probe tally counts. static: the probe shows one frame. wholeFps: a version 4 header's fps byte
+// holds whole frames a second instead of tenths (rates above 25.5).
+export const PROBE_FLAGS = { static: 1, wholeFps: 2, refine: 4 };
 export const HEADER_SCHEME = { kind: 'rgb', levels: [2, 2, 2] };
 export const HEADER_CODEWORD = HEADER_BYTES + HEADER_PARITY; // 64
 export const HEADER_CELLS = Math.ceil(HEADER_CODEWORD * 8 / 3); // 171
@@ -220,6 +222,7 @@ function decodeV3(bytes) {
     probeCount: view.getUint16(22),
     probeFps: h[24] === 0 ? null : h[24] / 10,
     probeStatic: (h[25] & PROBE_FLAGS.static) !== 0,
+    probeRefine: (h[25] & PROBE_FLAGS.refine) !== 0,
   };
   const [r, g, b] = scheme.kind === 'rgb' ? scheme.levels : [];
   if (scheme.kind === 'rgb' && r === g && g === b) header.levels = r;

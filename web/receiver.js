@@ -4,9 +4,11 @@ import { classifyAttempt } from '../src/tune/attempts.js';
 import { nextAttemptDelay, JITTER_MS } from '../src/tune/pacing.js';
 import { setupSetupCheck } from './setupcheck.js';
 import { createAttemptLog } from '../src/optimize/attemptlog.js';
-import { cameraRequest, CAMERA_CHOICES } from '../src/tune/camerachoice.js';
+import { cameraRequest, resetRequest, CAMERA_CHOICES } from '../src/tune/camerachoice.js';
+import { createTestCounter, createAimTracker } from '../src/optimize/testcount.js';
 import { createRunStatus, formatClock, cameraAspect, gridText } from './rxstatus.js';
 import { setStatus } from './status.js';
+import { createWakeLock } from './wakelock.js';
 
 const JPEG_WARNING = 'JPEG files usually fail; PNG is required';
 const ENCRYPTED_PROMPT = 'This transmission is encrypted. Enter the password.';
@@ -45,10 +47,14 @@ const cameraStarter = createCameraStarter({
 let attemptTimer = null;
 let frameCallback = null; // pending requestVideoFrameCallback handle
 let busy = false; // a camera frame is posted and its status has not come back
+const testCounter = createTestCounter(); // distinct good pieces per test, reported once a second
+const aimTracker = createAimTracker();
+const wakeLock = createWakeLock(); // held during a Refine, so the walked-away phone stays awake
 const attemptLog = createAttemptLog(); // per probe attempt records, drained into each debug post
 let attemptMs = []; // how long each camera attempt took, grab to status, for the debug log
-let cameraResolution = '1080p'; // what the camera was asked for: picked on the phone, or asked for by the test runner
-let cameraSeqSeen = null; // the test runner's last camera request already followed
+let cameraResolution = '1080p'; // what the camera was asked for: picked on the phone, or asked for through the project server
+let cameraSeqSeen = null; // the last camera request from the server already followed
+let resetSeqSeen = null; // the last request from the server to start fresh already seen
 let cameraState = 'off'; // 'starting', 'running', 'off' or 'error', reported to the laptop
 let grabCanvas = null;
 
@@ -104,8 +110,8 @@ function onWorkerMessage(event) {
   if (msg.type === 'status') {
     lastCollector = msg.collector;
     noteDebug(msg);
-    // Tell the laptop at once when a transmission completes, so the test
-    // runner's throughput timing is not delayed by the one second post interval.
+    // Tell the laptop at once when a transmission completes, so Refine and
+    // Timed runs hear of it without waiting for the one second post interval.
     if (debugOn && msg.collector.complete && msg.collector.txId !== lastReportedComplete) {
       lastReportedComplete = msg.collector.txId;
       sendDebug();
@@ -138,6 +144,8 @@ function showStatus({ read, collector, lastError, debug, attempt }) {
   if (debug) {
     runStatus.noteAttempt({ atMs, stage: debug.stage, ...(attempt ?? {}) });
     readTimes.push(atMs);
+    testCounter.add({ atMs, header: attempt?.header ?? null, markers: Boolean(read?.markersFound) });
+    aimTracker.note({ atMs, ...(attempt ?? {}) });
   }
   if (!empty) {
     runStatus.noteCollector({ atMs, ...collector });
@@ -538,6 +546,7 @@ function reset() {
   clearStats();
   $('rx-file-log').replaceChildren();
   setupCheck?.reset();
+  lastReportedComplete = null; // the same transmission completing again is news
   ignoreComplete = true;
   // Replies come in order, so a 'complete' before this reply belongs to the old collection.
   postToWorker({ type: 'reset' }).then(() => { ignoreComplete = false; });
@@ -599,13 +608,20 @@ function health() {
 }
 
 // The server answers each post with the laptop's instructions: the test on
-// screen, and the camera size to use. A new camera request from the test
-// runner is followed once; otherwise the size picked on the phone stands.
+// screen, the camera size to use, and whether to start fresh. A new camera
+// request is followed once; otherwise the size picked on the phone stands. A
+// new request to start fresh resets once, as the Reset button does.
 function followInstructions(state) {
   currentTest = state && state.test ? state.test : null;
   const { camera, seq } = cameraRequest(state, cameraSeqSeen);
   cameraSeqSeen = seq;
   if (camera) setCameraResolution(camera);
+  const fresh = resetRequest(state, resetSeqSeen);
+  resetSeqSeen = fresh.seq;
+  if (fresh.reset) reset();
+  runStatus.noteRefine(state?.refine ?? null, performance.now());
+  wakeLock.sync(runStatus.refineActive(performance.now()));
+  renderRun();
 }
 
 // Reopens the camera at a new size. Works with no network: the Camera choice
@@ -631,12 +647,14 @@ function sendDebug() {
   // index.html also loads this module behind the Send tab; only a page that is
   // receiving may report, or the laptop's own page reads as a phone with its camera off.
   if (!isReceiveTab()) return;
-  // The hidden page post carries the test runner's pause signal and must fit
+  wakeLock.sync(runStatus.refineActive(performance.now())); // a lapsed run lets go even with no reply
+  // The hidden page post tells Refine and Timed runs to pause and must fit
   // the keepalive quota, so it sends no records, only how many it drained.
   const drained = attemptLog.drain();
   const perAttempt = keepalive ? { attempts: [], dropped: drained.attempts.length + drained.dropped } : drained;
   const body = JSON.stringify({
-    source: 'receiver', stages: debugStages, tests: debugTests, health: health(),
+    source: 'receiver', stages: debugStages, tests: debugTests,
+    ...testCounter.totals(), testCounts: testCounter.report({ nowMs: performance.now() }), widthShare: aimTracker.get(performance.now()), health: health(),
     attemptMs: attemptMs.map(Math.round),
     last: debugLast, collector: lastCollector, setup: setupCheck?.summary() ?? null, ua: navigator.userAgent,
     perAttempt,

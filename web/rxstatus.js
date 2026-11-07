@@ -15,7 +15,10 @@ const OTHER_MISS = 'Other read failures';
 const RATE_SPAN_MS = 5000;
 const MIN_RATE_MS = 3000;
 const PROBE_RECENT_MS = 3000;
-const GOOD_SHARE = 0.8;
+// A running Refine renews its word within this long; a word left behind by a
+// closed computer page lapses, and the wake lock with it.
+export const REFINE_STALE_MS = 60000;
+const GOOD_SHARE = 0.65; // 65 and 70 percent framing gave the best runs on the test setup
 
 export function formatClock(ms) {
   if (ms == null || !Number.isFinite(ms)) return '--:--';
@@ -51,13 +54,19 @@ export function createRunStatus({ window = 30 } = {}) {
   // stays in every status. The latest of these two decides which one the word shows.
   let probeAtMs = null; // the last probe or characterization header
   let progressAtMs = null; // the last time the collector gained pieces or changed transmission
+  let plainProbeAtMs = null; // the last header of a Probe run, not of a Refine test
+  let refine = null; // what the computer last said about a Refine run: { seq, active, word, kind, atMs }
 
   function noteAttempt({ atMs, stage, header, gridCorners, imageW, imageH }) {
     attempts.push({ atMs, stage });
     if (attempts.length > window) attempts = attempts.slice(-window);
     if (header) lastHeader = header;
     const t = header && header.frameType;
-    if (t === FRAME_TYPES.probe || t === FRAME_TYPES.characterization) { probeAtMs = atMs; lastProbe = header; }
+    if (t === FRAME_TYPES.probe || t === FRAME_TYPES.characterization) {
+      probeAtMs = atMs;
+      lastProbe = header;
+      if (!header.probeRefine) plainProbeAtMs = atMs;
+    }
     lastAim = gridCorners && imageW && imageH ? { gridCorners, imageW, imageH } : null;
   }
 
@@ -82,6 +91,7 @@ export function createRunStatus({ window = 30 } = {}) {
 
   function probeWord(nowMs) {
     const recent = probeAtMs !== null && nowMs - probeAtMs <= PROBE_RECENT_MS;
+    if (lastProbe?.probeRefine) return recent ? { word: `Refine test ${lastProbe.probeId}`, kind: 'work' } : { word: 'Refine ended', kind: 'warn' };
     if (recent && lastProbe) {
       return lastProbe.frameType === FRAME_TYPES.probe
         ? { word: `Probe ${lastProbe.probeId} of ${lastProbe.probeCount}`, kind: 'work' }
@@ -92,8 +102,20 @@ export function createRunStatus({ window = 30 } = {}) {
     return null;
   }
 
+  const refineActive = (nowMs) => Boolean(refine?.active) && nowMs - refine.atMs <= REFINE_STALE_MS;
+
+  // A finished run's result stays until a transfer or a Probe run is newer.
+  function refineWord(nowMs) {
+    if (!refine) return null;
+    if (refine.active) return refineActive(nowMs) ? { word: refine.word, kind: refine.kind } : null;
+    const newer = (progressAtMs !== null && progressAtMs > refine.atMs) || (plainProbeAtMs !== null && plainProbeAtMs > refine.atMs);
+    return newer ? null : { word: refine.word, kind: refine.kind };
+  }
+
   function word(nowMs) {
     if (error) return { word: error, kind: 'fail' };
+    const said = refineWord(nowMs);
+    if (said) return said;
     // A probe run after the last collector progress outranks that stale transfer.
     const probeNewer = probeAtMs !== null && (progressAtMs === null || probeAtMs > progressAtMs);
     if (collector && !probeNewer) return collector.complete ? { word: 'Complete', kind: 'ok' } : { word: 'Receiving', kind: 'work' };
@@ -120,7 +142,7 @@ export function createRunStatus({ window = 30 } = {}) {
     const a = aimFromCorners(lastAim.gridCorners, { width: lastAim.imageW, height: lastAim.imageH });
     if (a.advice && a.advice.length) return a.advice[0];
     const pct = Math.round(a.widthShare * 100);
-    if (a.widthShare < GOOD_SHARE) return `Move closer: the TV fills ${pct}% of the width (aim for 85 to 90%)`;
+    if (a.widthShare < GOOD_SHARE) return `Move closer: the TV fills ${pct}% of the width (the best run was at about 70%)`;
     return `Aim is good, the TV fills ${pct}% of the width`;
   }
 
@@ -140,5 +162,11 @@ export function createRunStatus({ window = 30 } = {}) {
     noteAttempt, noteCollector, state,
     noteRecommendation(text) { recommendation = text || null; },
     noteError(text) { error = text || null; },
+    /** The computer's word for a Refine run, from each report's reply. The same seq is not news. */
+    noteRefine(next, atMs) {
+      if (!next) refine = null;
+      else if (!refine || refine.seq !== next.seq) refine = { ...next, atMs };
+    },
+    refineActive,
   };
 }

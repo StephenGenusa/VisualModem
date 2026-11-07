@@ -6,12 +6,15 @@ import { SCHEME_CHOICES } from '../src/core/scheme.js';
 import { settingsScheme } from '../src/core/transmission.js';
 import { computeLayout, computeLayoutV4, fitGrid } from '../src/picture/layout.js';
 import { renderFrame } from '../src/picture/render.js';
+import { estimateRefreshHz, shownRate } from '../src/picture/cadence.js';
 import { computeReadout } from './readout.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { openStage, showLoop, isStageOpen, stageRefused, onStageClosed, hasElementFullscreen } from './stage.js';
-import { setupTune } from './tune.js';
-import { setupRunner } from './runner.js';
+import { setupCapture } from './tune.js';
 import { setupProbe } from './probe.js';
+import { setupRefine } from './refine.js';
+import { setupChoices } from './choices.js';
+import { setupTimedRuns } from './timedruns.js';
 import { THEMES, loadTheme, saveTheme, shownTheme } from './theme.js';
 import { setStatus } from './status.js';
 
@@ -25,7 +28,25 @@ let stream = null;
 let streamError = '';
 let payloadGeneration = 0;
 let screenSettings;
+// The screen's refresh rate, measured once on page load; 60 until then, and
+// when the page is hidden (no refreshes come).
+let sendRefreshHz = 60;
+const REFRESH_STAMPS = 20;
+
+function measureSendRefresh() {
+  if (document.hidden) return;
+  const stamps = [];
+  const step = (t) => {
+    stamps.push(t);
+    if (stamps.length < REFRESH_STAMPS) { requestAnimationFrame(step); return; }
+    sendRefreshHz = estimateRefreshHz(stamps);
+    writeScreenLabels();
+    if (screenSettings) refreshPreview();
+  };
+  requestAnimationFrame(step);
+}
 let fileSettings;
+let choices = null; // the Choose settings menu, once set up
 
 function screenPixels() {
   const dpr = window.devicePixelRatio || 1;
@@ -38,6 +59,20 @@ function viewportPixels() {
   const w = vv ? vv.width : window.innerWidth;
   const h = vv ? vv.height : window.innerHeight;
   return { cssWidth: w, cssHeight: h, widthPx: Math.round(w * dpr), heightPx: Math.round(h * dpr) };
+}
+
+// The key Refine keeps its results under for this screen.
+function screenKeyNow() {
+  const { widthPx, heightPx } = displayPixels();
+  return `${widthPx}x${heightPx}`;
+}
+
+function browserStorage() {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
 }
 
 // The pixel size a transmission will use, so the cap and readout match what Start sends.
@@ -152,7 +187,11 @@ function readScreenControls() {
 function writeScreenLabels() {
   $('block-size-value').textContent = $('block-size').value;
   $('parity-value').textContent = $('parity').value;
-  $('fps-value').textContent = $('fps').value;
+  const fpsValue = Number($('fps').value);
+  const shown = shownRate(fpsValue, sendRefreshHz);
+  $('fps-value').textContent = shown.differs
+    ? `${$('fps').value}, shown at ${+shown.fps.toFixed(2)} on this ${sendRefreshHz} Hz screen`
+    : $('fps').value;
   $('white-value').textContent = $('white').value;
   // A camera cannot tell 256 levels apart; the note says so while it is selected.
   $('levels-note').hidden = $('levels').value !== '256' || $('scheme').value !== 'cube';
@@ -174,7 +213,7 @@ function refreshPreview() {
     clearPreview();
     return;
   }
-  const r = computeReadout({ ...displayPixels(), ...screenSettings }, stream.length);
+  const r = computeReadout({ ...displayPixels(), ...screenSettings, fps: shownRate(screenSettings.fps, sendRefreshHz).fps }, stream.length);
   const fountain = fountainPlan(r, screenSettings, stream.length);
   const problem = fountain ? null : readoutProblem(r);
   if (problem) {
@@ -215,9 +254,11 @@ function refreshPreview() {
   $('start').disabled = false;
 }
 
-// Sets screen sliders from code (auto tune's result) as if the user moved them.
+// Sets screen sliders from code (the result of Refine) as if the user moved them.
 function applyScreenSettings(patch) {
   if (patch.blockSize !== undefined) $('block-size').value = String(patch.blockSize);
+  if (patch.parity !== undefined) $('parity').value = String(patch.parity);
+  if (patch.fps !== undefined) $('fps').value = String(patch.fps);
   if (patch.white !== undefined) $('white').value = String(patch.white);
   if (patch.levels !== undefined) $('levels').value = String(patch.levels);
   if (patch.scheme !== undefined) $('scheme').value = patch.scheme;
@@ -228,6 +269,7 @@ function onScreenControlChange() {
   screenSettings = readScreenControls();
   writeScreenLabels();
   saveSettings('screen', screenSettings);
+  choices?.redraw(); // its first line stays the current settings
   schedulePreview();
   scheduleSenderDebug('settings');
 }
@@ -278,18 +320,31 @@ async function startTransmission() {
   }
 }
 
-async function runTransmission() {
-  const pixels = displayPixels();
-  const settings = { ...screenSettings };
+/**
+ * Everything Start does before the stage opens, for the payload stream at these
+ * settings and pixels: the readout, the fountain plan, the layout and the frames.
+ * Start and Timed runs both use it, so they send the same transfer.
+ * @returns {{ tx: object, layout: object, settings: object, version: number } | { problem: string }}
+ */
+function buildTransmission(settings, pixels) {
+  if (!stream) return { problem: 'Nothing to send' };
   const r = computeReadout({ ...pixels, ...settings }, stream.length);
   const fountain = fountainPlan(r, settings, stream.length);
   const problem = fountain ? null : readoutProblem(r);
-  if (problem) {
-    setStatus($('readout'), 'fail', problem);
-    return;
-  }
+  if (problem) return { problem };
   const layout = fountain ? fountain.layoutV4 : computeLayout(r.cols, r.rows);
   const tx = fountain ? encodeTransmissionV4(stream, layout, settings) : encodeTransmission(stream, layout, settings);
+  return { tx, layout, settings, version: fountain ? 4 : 3 };
+}
+
+async function runTransmission() {
+  const pixels = displayPixels();
+  const built = buildTransmission({ ...screenSettings }, pixels);
+  if (built.problem) {
+    setStatus($('readout'), 'fail', built.problem);
+    return;
+  }
+  const { tx, layout, settings, version } = built;
   const ctx = await openStage(pixels);
   if (!ctx) {
     if (stageRefused()) setStatus($('readout'), 'fail', 'The browser refused full screen');
@@ -297,7 +352,7 @@ async function runTransmission() {
   }
   showLoop(ctx, { tx, layout, settings });
   sendSenderDebug('start', { settings, cols: layout.cols, rows: layout.rows, frames: tx.count ?? tx.sourceFrames, txId: tx.txId,
-    version: fountain ? 4 : 3, K: tx.K, packetsPerFrame: tx.packetsPerFrame, ...pixels });
+    version, K: tx.K, packetsPerFrame: tx.packetsPerFrame, ...pixels });
 }
 
 // ---- Save frames as PNG ----
@@ -511,9 +566,18 @@ function main() {
   screenSettings = loadSettings('screen');
   fileSettings = loadSettings('file');
   setupScreenControls();
+  measureSendRefresh();
   setupFileControls();
   setupSenderDebug();
-  setupTune({ getSettings: () => ({ ...screenSettings }), setSettings: applyScreenSettings, displayPixels }).then(setupRunner);
+  const pageHooks = { getSettings: () => ({ ...screenSettings }), setSettings: applyScreenSettings, displayPixels };
+  setupCapture(pageHooks).then((captureOn) => {
+    choices = setupChoices({ hooks: pageHooks, storage: browserStorage(), screenKey: screenKeyNow, capture: captureOn });
+    setupRefine(pageHooks, captureOn, choices);
+    setupTimedRuns({
+      hooks: { ...pageHooks, buildTransmission, streamBytes: () => stream?.length ?? 0 },
+      capture: captureOn, storage: browserStorage(), screenKey: screenKeyNow, menu: choices,
+    });
+  });
   setupProbe({ getSettings: () => ({ ...screenSettings }), displayPixels });
 
   let inputTimer = null;

@@ -445,13 +445,13 @@ body.rx-active .tabs { order: 2; }                         /* tabs below the fol
 
 /* sideways phone: camera left fitted to the height, panel right */
 @media (orientation: landscape) and (max-height: 500px) {
-  .rx-run { flex-direction: row; height: 100vh; height: 100svh; padding-left: env(safe-area-inset-left); }
+  .rx-run { --rx-top: 56px; flex-direction: row; height: 100vh; height: 100svh; padding-top: var(--rx-top); padding-left: env(safe-area-inset-left); }
   .camera-box { align-self: center; height: auto; max-height: 100%;
-    width: min(calc(100svh * var(--cam-ar, 1.7778)), calc(100vw - 250px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
+    width: min(calc((100svh - var(--rx-top)) * var(--cam-ar, 1.7778)), calc(100vw - 250px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
   .rx-panel { min-width: 250px; border-left: 2px solid var(--border);
     padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) 12px; }
 }
-/* 844 x 322 gives a camera 572 x 322 (16:9) and a panel 272 wide. A 4:3 stream gives 429 x 322 and a wider panel. */
+/* 844 x 322 gives a 56 px gap on top, room for the browser's toolbar when it slides down without covering the camera, a camera 473 x 266 (16:9) and a panel 371 wide. A 4:3 stream gives 355 x 266 and a wider panel. */
 
 /* upright phone: camera on top, panel under it */
 @media (orientation: portrait) {
@@ -500,8 +500,6 @@ button[hidden] { display: none; } /* the button rule's display: block would othe
 .stage.fallback { position: fixed; left: 0; top: 0; z-index: 1000; }
 html.transmitting, html.transmitting body { overflow: hidden; }
 
-.test-report table { border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
-.test-report th, .test-report td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; text-align: left; vertical-align: top; }
 
 /* Setup check on the Receive page */
 .setup-check { border: 1px solid var(--border); border-radius: var(--r-md); padding: 0.5rem 0.75rem; margin: 1rem 0; }

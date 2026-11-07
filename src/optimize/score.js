@@ -10,7 +10,7 @@ const MIN_ATTEMPTS = 6;
 const MIN_READ_RATE = 0.5;
 const FPS_STEP = 0.5;
 const FPS_MIN = 0.5;
-const FPS_MAX = 10;
+const FPS_MAX = 30;
 // Attempts on one probe closer together than this are one showing of it; their
 // gaps give the phone's attempt rate on that probe. Failed decodes take longer,
 // so each probe needs its own.
@@ -32,7 +32,7 @@ function wilsonLow(ok, n) {
  * @param {{ bytesPerFrame: (probe: object) => number }} options
  */
 export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, packetCount = () => 0 }) {
-  const tally = new Map(probes.map((p) => [p.id, { attempts: 0, ok: 0, lastMs: null, gaps: 0, gapMs: 0, frames: new Set(), packets: 0, whole: 0, live: new Map(), ended: new Set(), v4: false, n: 0, txIds: new Set(), fps: null, isStatic: false }]));
+  const tally = new Map(probes.map((p) => [p.id, { attempts: 0, ok: 0, lastMs: null, gaps: 0, gapMs: 0, frames: new Set(), packets: 0, whole: 0, live: new Map(), ended: new Set(), v4: false, n: 0, torn: 0, twoFrame: 0, tornGood: 0, txIds: new Set(), fps: null, isStatic: false, white: 255 }]));
   const probeOf = new Map(probes.map((p) => [p.id, p]));
   let lastSeen = null; // the probe id of the latest attempt that read a header
   let pending = []; // headerless misses matching lastSeen, charged only if the next header names it too
@@ -50,7 +50,7 @@ export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, pac
   // fallbackRate is used for a probe with too few attempts in one showing to time.
   function results(fallbackRate) {
     return probes.map((probe) => {
-      const { attempts, ok, gaps, gapMs, frames, txIds, fps: seenFps, isStatic, packets, whole, v4, n: seenN } = tally.get(probe.id);
+      const { attempts, ok, gaps, gapMs, frames, txIds, fps: seenFps, isStatic, white, packets, whole, v4, n: seenN, torn, twoFrame, tornGood } = tally.get(probe.id);
       const n = packetCount(probe) || seenN;
       const fps = seenFps ?? PROBE_FPS;
       const readRate = attempts > 0 ? ok / attempts : 0;
@@ -66,12 +66,15 @@ export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, pac
         const newPacketsPerSecond = showings > 0 && n > 0 ? Math.min(packets / ((showings * PROBE_HOLD_MS) / 1000), n * fps) : 0;
         const partialGain = wholeFrames > 0 ? packets / n / wholeFrames : null;
         bytesPerSecond = attempts < MIN_ATTEMPTS ? null : packetBytes(probe) * newPacketsPerSecond;
-        extra = { packets, packetCount: n, newPacketsPerSecond, wholeFrames, partialGain };
+        extra = {
+          packets, packetCount: n, newPacketsPerSecond, wholeFrames, partialGain,
+          tornReads: torn, twoFrameReads: twoFrame, goodPerTornRead: torn > 0 ? tornGood / torn : null,
+        };
       }
       return {
         ...extra,
         probe, attempts, ok, readRate, readRateLow: wilsonLow(ok, attempts), attemptRate, readsPerSecond,
-        okFrames, showings, newFramesPerSecond, fps, isStatic, bytesPerSecond,
+        okFrames, showings, newFramesPerSecond, fps, isStatic, white, bytesPerSecond,
       };
     });
   }
@@ -108,6 +111,13 @@ export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, pac
           // its packet ids (per frame, dropped when the frame completes); a
           // showing that has ended keeps nothing but its txId.
           const tx = header.txId ?? 0;
+          // A torn read has some good packets but not a whole frame's worth;
+          // it spans two frames when its good ids fall in more than one frame.
+          if (n > 0 && ids.length > 0) {
+            if (ids.length < n) { t.torn++; t.tornGood += ids.length; }
+            const first = Math.floor(ids[0] / n);
+            for (let i = 1; i < ids.length; i++) if (Math.floor(ids[i] / n) !== first) { t.twoFrame++; break; }
+          }
           if (!t.ended.has(tx)) {
             for (const other of t.live.keys()) if (other !== tx) { t.live.delete(other); t.ended.add(other); }
             if (!t.live.has(tx)) t.live.set(tx, new Map());
@@ -126,6 +136,8 @@ export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, pac
         } else if (ok) t.frames.add(`${header.txId ?? 0}:${header.index ?? 0}`);
         if (t.fps === null) t.fps = header.probeFps > 0 ? header.probeFps : PROBE_FPS;
         if (header.probeStatic) t.isStatic = true;
+        // The white level is what the header says, learned with the first read.
+        if (v4 && header.sourceCount > 0) t.white = header.sourceCount;
         return;
       }
       if (lastSeen === null || !(estCols > 0)) return;
@@ -138,22 +150,29 @@ export function createScorer(probes, { bytesPerFrame, packetBytes = () => 0, pac
     /**
      * The best probe among those read at least half the time, never a static
      * one: bytes per frame x new frames a second, scaled down to the read
-     * rate's lower bound. The frame rate is the reads per second, in the
-     * slider's 0.5 steps, never above what the probe showed.
+     * rate's lower bound. A version 3 frame rate is the reads per second, in the
+     * slider's 0.5 steps, never above what the probe showed; a version 4 probe
+     * is recommended at its own rate.
      */
     recommend(fallbackRate) {
       let best = null, bestScore = 0;
       for (const r of results(fallbackRate)) {
         if (r.bytesPerSecond === null || r.readRate < MIN_READ_RATE || r.isStatic) continue;
-        const score = r.readRate > 0 ? (r.bytesPerSecond * r.readRateLow) / r.readRate : 0;
+        // A v4 probe's measured bytes already include its failed reads, so they are its score.
+        // A v3 probe's bytes are per good read, so they are scaled by the read rate's lower bound.
+        const score = r.packets !== undefined ? r.bytesPerSecond
+          : r.readRate > 0 ? (r.bytesPerSecond * r.readRateLow) / r.readRate : 0;
         if (!best || score > bestScore) { best = r; bestScore = score; }
       }
       if (!best) return null;
+      if (best.packets !== undefined) {
+        // Version 4: any frame read is new, so showing faster than the phone
+        // reads does not repeat data, though it is not free. The probe's own rate and measurement stand.
+        return { probe: best.probe, bytesPerSecond: best.bytesPerSecond, fps: best.fps, partialGain: best.partialGain ?? null };
+      }
       const steps = Math.floor(best.readsPerSecond / FPS_STEP) * FPS_STEP;
       const fps = Math.min(FPS_MAX, best.fps, Math.max(FPS_MIN, steps));
-      const bytesPerSecond = best.packets !== undefined
-        ? packetBytes(best.probe) * Math.min(best.newPacketsPerSecond, best.packetCount * fps)
-        : bytesPerFrame(best.probe) * fps;
+      const bytesPerSecond = bytesPerFrame(best.probe) * fps;
       return { probe: best.probe, bytesPerSecond, fps, partialGain: best.partialGain ?? null };
     },
   };

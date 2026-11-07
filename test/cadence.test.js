@@ -74,3 +74,11 @@ test('a frame drawn at 1 px per block and scaled matches the full render', () =>
     assert.ok(Buffer.from(scaled.data).equals(Buffer.from(big.data)));
   }
 });
+
+test('shownRate gives the rate the screen can really show and whether it differs', async () => {
+  const { shownRate } = await import('../src/picture/cadence.js');
+  assert.deepEqual(shownRate(29, 60), { fps: 30, differs: true });
+  assert.deepEqual(shownRate(15, 60), { fps: 15, differs: false });
+  assert.deepEqual(shownRate(10, 120), { fps: 10, differs: false });
+  assert.deepEqual(shownRate(25, 60), { fps: 30, differs: true });
+});
